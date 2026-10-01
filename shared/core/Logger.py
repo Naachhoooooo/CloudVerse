@@ -208,23 +208,35 @@ _CONSOLE_FMT  = '%(asctime)s | %(levelname)-7s | %(name)s | %(message)s'
 _CONSOLE_DATE = '%H:%M:%S'
 
 
-class SafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
-    """A TimedRotatingFileHandler that gracefully ignores Windows PermissionErrors during rollover."""
-    def doRollover(self):
-        try:
-            super().doRollover()
-        except PermissionError:
-            # On Windows, if another process holds the file, we can't rotate it.
-            # It will just keep appending to the current file.
-            pass
+def cleanup_old_logs(log_dir: Path, days: int = 5) -> None:
+    """Manually delete logs older than the specified number of days."""
+    import time
+    if not log_dir.exists():
+        return
+    now = time.time()
+    cutoff = now - (days * 86400)
+    for p in log_dir.glob("*.log"):
+        if p.is_file() and p.stat().st_mtime < cutoff:
+            try:
+                p.unlink()
+            except Exception:
+                pass
 
 def _make_rotating_handler(path: Path, level: int,
-                           formatter: logging.Formatter) -> logging.handlers.TimedRotatingFileHandler:
-    """Create a 30-day midnight-rolling file handler."""
+                           formatter: logging.Formatter) -> logging.FileHandler:
+    """Create a run-specific file handler and clean up old logs."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    h = SafeTimedRotatingFileHandler(
-        str(path), when='midnight', interval=1, backupCount=30, encoding='utf-8'
-    )
+    
+    # Clean up logs older than 30 days
+    cleanup_old_logs(path.parent, days=30)
+    
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    new_name = f"{path.stem}_{timestamp}{path.suffix}"
+    run_path = path.parent / new_name
+    
+    from logging.handlers import TimedRotatingFileHandler
+    h = TimedRotatingFileHandler(str(run_path), when="midnight", interval=1, backupCount=30, encoding='utf-8')
     h.setLevel(level)
     h.setFormatter(formatter)
     return h

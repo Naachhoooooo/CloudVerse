@@ -68,6 +68,24 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
+    from bots.administrator.config import (
+        Access_TOPIC_ID, Flags_TOPIC_ID, Broadcasts_TOPIC_ID, Alerts_TOPIC_ID, Bugs_TOPIC_ID, BACKUP_TOPIC_ID, DEFAULT_QUOTA
+    )
+    
+    app.bot_data['config'] = {
+        'GROUP_CHAT_ID': TeamCloudverse_GROUP_CHAT_ID,
+        'SUPER_ADMIN_ID': SUPER_ADMIN_ID,
+        'ACCESS_TOPIC_ID': Access_TOPIC_ID,
+        'FLAGS_TOPIC_ID': Flags_TOPIC_ID,
+        'BROADCASTS_TOPIC_ID': Broadcasts_TOPIC_ID,
+        'MANAGEMENT_TOPIC_ID': Management_TOPIC_ID,
+        'ALERTS_TOPIC_ID': Alerts_TOPIC_ID,
+        'BUGS_TOPIC_ID': Bugs_TOPIC_ID,
+        'BACKUP_TOPIC_ID': BACKUP_TOPIC_ID,
+        'BOT_DB_PATH': str(SERVER_DB_PATH),
+        'DEFAULT_QUOTA': DEFAULT_QUOTA,
+    }
+
     from telegram.ext import TypeHandler, ApplicationHandlerStop
     from telegram import Update
     from telegram.ext import ContextTypes
@@ -164,11 +182,14 @@ def main():
     app.add_handler(CommandHandler("domain", handle_domain_command))
     app.add_handler(CommandHandler("session", handle_session_command))
     app.add_handler(CommandHandler("help", handle_help_command))
+    
+    from shared.utils.topics import handle_topic_command
+    app.add_handler(CommandHandler("topic", handle_topic_command))
     app.add_handler(CommandHandler("queue", handle_queue_command))
     
     # Callbacks
     app.add_handler(CallbackQueryHandler(handle_quota_callback, pattern=r"^(manage_user_quota(:.*)?|quota_.*|edit_quota:.*|set_quota:.*|reset_usage:.*|flag_user:.*|flag_ban_perm:.*|flag_ban_temp:.*)$"))
-    app.add_handler(CallbackQueryHandler(handle_server_callback, pattern=r"^(server_.*|terminate_bot:.*|confirm_term_bot:.*|cancel_term_bot)$"))
+    app.add_handler(CallbackQueryHandler(handle_server_callback, pattern=r"^(server_.*|terminate_bot:.*|confirm_term_bot:.*|cancel_term_bot|terminate_server|cancel_terminate|confirm_terminate:.*)$"))
     app.add_handler(CallbackQueryHandler(handle_records_callback, pattern=r"^(handle_delete_records|delete_records_.*|delete_user_.*)$"))
     app.add_handler(CallbackQueryHandler(handle_maintenance_callback, pattern=r"^(maintenance_.*)$"))
     app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^(broadcast_.*|approve_broadcast:.*|reject_broadcast:.*)$"))

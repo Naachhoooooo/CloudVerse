@@ -50,9 +50,9 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if not is_authorized:
         text = (
-            f"Hi *{user_name}*👋 Welcome to CloudVerse!\n\n"
+            f"Hi <b>{user_name}</b>👋 Welcome to CloudVerse!\n\n"
             f"🛡 You are not currently authorized to use this bot.\n\n"
-            f"In order to use this bot, you need to request access."
+            f"In order to use this bot, you need to request access. "
             f"Please click the button below to submit a request, and Team CloudVerse will review it shortly."
         )
         buttons = [
@@ -70,10 +70,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     platform = 'Google Drive' if provider == 'Drive' else 'Mega.nz' if provider == 'Mega' else 'Cloud Storage'
 
     text = (
-        f"👋 Welcome back, *{user_name}!*\n"
-        f"How are you feeling today? 😊\n\n"
-        f"You are currently connected to the *CloudVerse {platform}* gateway.\n\n"
-        f"To navigate, please use the **Telegram Command Menu** (the blue button next to the chat input).\n\n"
+        f"👋 Welcome back, <b>{user_name}</b>!, How are you feeling today? 😊\n\n"
+        f"You are currently connected to the <b>CloudVerse {platform}</b> gateway.\n\n"
         f"🛡 Please make sure to check out our /policy before getting started!"
     )
 
@@ -125,9 +123,9 @@ async def handle_request_access(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await account_repo.update(telegram_id=telegram_id, request_message_id=msg_id)
         
         await q.edit_message_text(
-            "✅ **Request Submitted**\n\n"
+            "✅ <b>Request Submitted</b>\n\n"
             "Team CloudVerse will review it shortly and you will be notified once a decision is made.",
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     except Exception as e:
         logger.error(f"Failed to handle request access for user {telegram_id}: {e}")

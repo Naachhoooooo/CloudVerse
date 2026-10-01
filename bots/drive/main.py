@@ -78,6 +78,7 @@ logger = get_logger(__name__)
 warnings.filterwarnings("ignore", category=UserWarning, module="googleapiclient")
 
 if not all([BOT_TOKEN, TeamCloudverse_GROUP_CHAT_ID, SUPER_ADMIN_ID]):
+    logger.error(f"Missing config in drive bot: BOT_TOKEN={bool(BOT_TOKEN)}, TeamCloudverse_GROUP_CHAT_ID={bool(TeamCloudverse_GROUP_CHAT_ID)}, SUPER_ADMIN_ID={bool(SUPER_ADMIN_ID)}")
     raise ValueError("Required configuration variables are not set. Check your .env file.")
 
 
@@ -293,11 +294,17 @@ def _setup_lifecycle(app):
         register_probe("drive_provider", drive_probe, failures_threshold=3)
         start_health_monitoring()
 
+    # Capture this session's timestamp at startup — matches the filenames in Logger.py
+    import datetime as _dt
+    _SESSION_TS = _dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
     async def on_startup(application):
         logger.info("Setting bot commands...")
         await set_bot_commands(application)
         import os
-        await application.bot_data['account_repo'].sync_super_admins(os.getenv("SUPER_ADMIN_ID"))
+        await application.bot_data['account_repo'].sync_super_admins(
+            os.getenv("DRIVE_SUPER_ADMIN_ID") or os.getenv("GLOBAL_SUPER_ADMIN_ID")
+        )
         logger.info("✅ Super admins synced from .env")
         alert_manager = await _start_core_managers(application)
         _register_health_probes(application)
@@ -307,6 +314,19 @@ def _setup_lifecycle(app):
         await application.bot_data['history_repo'].safe_create(
             action_taken="BOT_STARTUP", status="SUCCESS", event_details="Drive bot started successfully."
         )
+        # Archive previous session logs → backup topic
+        from shared.managers.LogManager import archive_previous_session_logs
+        from bots.drive.config import TeamCloudverse_GROUP_CHAT_ID, BACKUP_TOPIC_ID
+        try:
+            await archive_previous_session_logs(
+                bot=application.bot,
+                chat_id=int(TeamCloudverse_GROUP_CHAT_ID),
+                topic_id=int(BACKUP_TOPIC_ID),
+                provider_name="gdrive",
+                session_timestamp=_SESSION_TS,
+            )
+        except Exception as _e:
+            logger.warning(f"[SYSTEM] Session log archive skipped: {_e}")
 
     app.post_init = on_startup
 

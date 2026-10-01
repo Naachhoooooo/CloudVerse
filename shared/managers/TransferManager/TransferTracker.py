@@ -305,7 +305,7 @@ class TransferTracker:
             await update_message_func(full_message, reply_markup=reply_markup)
         except Exception as e:
             # Catch temporary telegram issues (e.g. unmodified message, transient floodwait)
-            logger.error(f"Failed to update progress message for {transfer_id}: {e}")
+            logger.error(f"Failed to update progress message for {transfer_id}: {e}", exc_info=True)
 
     async def get_user_transfers(self, telegram_id: int) -> Dict[str, Dict]:
         async with self._lock:

@@ -7,9 +7,10 @@ CloudVerse is an advanced, production-ready Multi-Process Telegram Upload Bot ec
 CloudVerse employs a **Monorepo with Multi-Process Runners** architecture approach. The design establishes a strict boundary between the global `shared/` kernel and independent operational domains inside `bots/` and `support/`.
 
 *   **`shared/`**: Contains provider-agnostic core libraries, handlers, and centralized manager systems (Cryptography, Memory, and Global Database Pool via `DatabaseConnectionManager`).
+*   **`bots/administrator/`**: Global administration and operations dashboard for tracking users, lanes, and system health across all bots.
 *   **`bots/drive/`**: The primary production-grade Google Drive uploading service.
-*   **`bots/mega/`**: Boilerplate staging layout for Mega uploads.
-*   **`bots/rclone/`**: Boilerplate staging layout for diverse cloud integrations using Rclone.
+*   **`bots/mega/`**: Fully integrated Mega.nz uploading service and file manager.
+*   **`bots/rclone/`**: Fully integrated Rclone service for diverse cloud-to-cloud integrations.
 *   **`support/`**: Custom user-admin reporting ecosystem utilizing a ticketing queue.
 
 ## ✨ Features

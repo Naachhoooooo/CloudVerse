@@ -7,7 +7,8 @@ from telegram.ext import ContextTypes
 from shared.core.Logger import get_logger
 from shared.core.ErrorHandler import handle_errors
 from shared.managers.AccessManager import admin_required
-from shared.managers.TransferManager.TransferTracker import get_transfer_tracker
+from bots.administrator.utils.db_utils import get_all_active_transfers, signal_kill_transfer
+from shared.managers.ServerManager import get_server_manager
 
 logger = get_logger(__name__)
 
@@ -39,9 +40,8 @@ async def handle_queue_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         transfer_id = data.split(":")[1]
         await _render_queue_details(update, ctx, transfer_id)
     elif data.startswith("queue_kill:"):
-        transfer_id = data.split(":")[1]
-        tracker = get_transfer_tracker()
-        await tracker.cancel_transfer(transfer_id)
+        _, bot_name, transfer_id = data.split(":")
+        await signal_kill_transfer(bot_name, int(transfer_id))
         page = ctx.user_data.get('queue_page', 0)
         await _render_queue_page(update, ctx, page=page, is_callback=True)
 
@@ -49,12 +49,14 @@ async def _render_queue_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE, pag
     q = getattr(update, "callback_query", None)
     m = q.message if q else update.message
 
-    tracker = get_transfer_tracker()
-    transfers = tracker._state._transfer_info
+    transfers = await get_all_active_transfers()
     
     # Calculate stats
     total_active = len(transfers)
-    load_factor = tracker._calculate_system_load_factor()
+    
+    server_manager = get_server_manager()
+    server_stats = await server_manager.get_server_stats()
+    load_factor = server_stats.get('load', 0.0) / 100.0 if server_stats.get('load') else 0.0
     
     header = (
         f"Live Traffic Queue\n\n"
@@ -68,10 +70,10 @@ async def _render_queue_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE, pag
     else:
         text = header
         
-        # Sort transfers by start_time (newest first)
+        # Sort transfers by started time (newest first)
         sorted_transfers = sorted(
-            transfers.items(), 
-            key=lambda item: item[1].get('start_time', datetime.min), 
+            transfers, 
+            key=lambda t: t.get('started') or '2000-01-01', 
             reverse=True
         )
         
@@ -84,19 +86,21 @@ async def _render_queue_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE, pag
         page_transfers = sorted_transfers[start_idx:end_idx]
         
         buttons = []
-        for tid, info in page_transfers:
+        for info in page_transfers:
+            tid = info.get("id")
+            bot_provider = info.get("bot_provider", "unknown")
             username = info.get("username", "Unknown")
-            provider = info.get("provider", "Unknown").capitalize()
+            provider = bot_provider.capitalize()
             
-            current_bytes = info.get("progress", 0)
-            total_bytes = info.get("file_size") or 0
+            current_bytes = info.get("bytes_transferred", 0)
+            total_bytes = info.get("file_size") or info.get("transfer_size") or 0
             
             percent = (current_bytes / total_bytes * 100) if total_bytes > 0 else 0
             current_mb = current_bytes / (1024 * 1024)
             total_mb = total_bytes / (1024 * 1024)
             
             btn_text = f"[{provider}] @{username} | {percent:.1f}% ({current_mb:.1f}/{total_mb:.1f} MB)"
-            buttons.append([InlineKeyboardButton(btn_text, callback_data=f"queue_details:{tid}")])
+            buttons.append([InlineKeyboardButton(btn_text, callback_data=f"queue_details:{bot_provider}_{tid}")])
             
         # Pagination controls
         nav_buttons = []
@@ -123,13 +127,16 @@ async def _render_queue_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE, pag
         await m.reply_text(text, reply_markup=markup, parse_mode=None)
 
 
-async def _render_queue_details(update: Update, ctx: ContextTypes.DEFAULT_TYPE, transfer_id: str):
+async def _render_queue_details(update: Update, ctx: ContextTypes.DEFAULT_TYPE, transfer_id_str: str):
     q = update.callback_query
     if not q:
         return
         
-    tracker = get_transfer_tracker()
-    info = tracker._state.get_transfer_info(transfer_id)
+    bot_provider, tid = transfer_id_str.split("_", 1)
+    tid = int(tid)
+    
+    transfers = await get_all_active_transfers()
+    info = next((t for t in transfers if t.get("id") == tid and t.get("bot_provider") == bot_provider), None)
     
     if not info:
         # Transfer might have finished or been killed
@@ -139,18 +146,26 @@ async def _render_queue_details(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
         
     username = info.get("username", "Unknown")
     telegram_id = info.get("telegram_id", "Unknown")
-    provider = info.get("provider", "Unknown").capitalize()
-    file_name = info.get("file_name", "unknown")
+    provider = bot_provider.capitalize()
+    file_name = info.get("file_name") or info.get("job_id") or "unknown"
+    status = info.get("status", "unknown")
     
-    current_bytes = info.get("progress", 0)
-    total_bytes = info.get("file_size") or 0
+    current_bytes = info.get("bytes_transferred", 0)
+    total_bytes = info.get("file_size") or info.get("transfer_size") or 0
     
     percent = (current_bytes / total_bytes * 100) if total_bytes > 0 else 0
     current_mb = current_bytes / (1024 * 1024)
     total_mb = total_bytes / (1024 * 1024)
     
-    start_time = info.get("start_time", datetime.now())
-    elapsed = (datetime.now() - start_time).total_seconds()
+    started_str = info.get("started")
+    elapsed = 0
+    if started_str:
+        try:
+            started = datetime.strptime(started_str, "%Y-%m-%d %H:%M:%S")
+            elapsed = (datetime.now() - started).total_seconds()
+        except Exception:
+            pass
+            
     speed_mbs = (current_bytes / elapsed / (1024 * 1024)) if elapsed > 0 else 0
     
     remaining_bytes = max(total_bytes - current_bytes, 0)
@@ -166,6 +181,7 @@ async def _render_queue_details(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
         f"Provider: {provider}\n"
         f"User: @{username} ({telegram_id})\n"
         f"File: {file_name}\n"
+        f"Status: {status}\n"
         f"Progress: {percent:.2f}% ({current_mb:.1f} MB / {total_mb:.1f} MB)\n"
         f"Speed: {speed_mbs:.1f} MB/s\n"
         f"ETA: {eta_str}\n"
@@ -173,8 +189,8 @@ async def _render_queue_details(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
     )
     
     buttons = [
-        [InlineKeyboardButton("Kill Transfer", callback_data=f"queue_kill:{transfer_id}")],
-        [InlineKeyboardButton("Refresh", callback_data=f"queue_details:{transfer_id}")],
+        [InlineKeyboardButton("Kill Transfer", callback_data=f"queue_kill:{bot_provider}:{tid}")],
+        [InlineKeyboardButton("Refresh", callback_data=f"queue_details:{transfer_id_str}")],
         [InlineKeyboardButton("Back", callback_data="refresh_queue")]
     ]
     markup = InlineKeyboardMarkup(buttons)

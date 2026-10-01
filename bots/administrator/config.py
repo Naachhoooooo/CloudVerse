@@ -7,8 +7,8 @@ from pathlib import Path
 import os
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
-BOT_TOKEN      = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("SUPPORT_BOT_TOKEN")
-SUPER_ADMIN_ID = os.getenv("SUPER_ADMIN_ID") # Global super admin
+BOT_TOKEN      = os.getenv("ADMINISTRATOR_BOT_TOKEN") or os.getenv("ADMIN_BOT_TOKEN")
+SUPER_ADMIN_ID = os.getenv("GLOBAL_SUPER_ADMIN_ID") or os.getenv("SUPER_ADMIN_ID") # Global super admin
 
 # ── Admin Group & Topics ─────────────────────────────────────────────────────
 TeamCloudverse_GROUP_CHAT_ID = os.getenv("TEAM_CLOUDVERSE_GROUP_CHAT_ID") or os.getenv("TeamCloudverse_GROUP_CHAT_ID")

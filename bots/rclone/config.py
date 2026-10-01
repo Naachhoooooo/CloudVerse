@@ -7,7 +7,7 @@ from pathlib import Path
 import os
 
 RCLONE_BOT_TOKEN = os.getenv("RCLONE_BOT_TOKEN")
-RCLONE_SUPER_ADMIN_ID = os.getenv("RCLONE_SUPER_ADMIN_ID")
+RCLONE_SUPER_ADMIN_ID = os.getenv("RCLONE_SUPER_ADMIN_ID") or os.getenv("GLOBAL_SUPER_ADMIN_ID")
 
 TeamCloudverse_GROUP_CHAT_ID = (
     os.getenv("TEAM_CLOUDVERSE_GROUP_CHAT_ID")

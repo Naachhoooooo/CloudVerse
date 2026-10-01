@@ -1,5 +1,5 @@
 # CloudVerse Ecosystem Policies
-*Last Updated: 27 July 2026*
+*Last Updated: 01 October 2026*
 
 Welcome to **CloudVerse**. By using our bots (Drive, Mega, Rclone), you agree to these simplified terms.
 
@@ -14,6 +14,7 @@ Welcome to **CloudVerse**. By using our bots (Drive, Mega, Rclone), you agree to
 - **Data Storage**: Your files are *never* stored permanently on our servers. They are securely deleted immediately after transfer.
 - **Third-Parties**: Your files go straight to your chosen cloud provider (e.g., Google Drive, Mega), subject to their privacy rules. We never sell your data.
 - **Log Scrubbing**: System logs are automatically scrubbed of sensitive data (passwords, tokens) to protect your privacy.
+- **Log Retention**: System logs are retained for **5 days**. Each restart produces a new timestamped log archive which is automatically backed up and then deleted after 5 days.
 
 ## 3. Copyright Policy
 - **Zero Tolerance**: You must own or have legal rights to the files you transfer. Piracy is strictly forbidden.

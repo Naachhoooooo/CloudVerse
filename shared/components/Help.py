@@ -12,7 +12,10 @@ from shared.core.Logger import get_logger
 
 logger = get_logger(__name__)
 
+from shared.managers.AccessManager import access_required
+
 @handle_errors
+@access_required
 async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     logger.info("Help command called")
     provider_name = ctx.bot_data.get('provider_name', 'Cloud')
@@ -58,3 +61,7 @@ async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if update.message:
         await update.message.reply_text(help_text, parse_mode='HTML')
+
+def register_handlers(app):
+    from telegram.ext import CommandHandler
+    app.add_handler(CommandHandler("help", help_command))

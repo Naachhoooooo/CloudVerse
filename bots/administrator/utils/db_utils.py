@@ -102,3 +102,74 @@ async def get_all_active_users_filtered(active_bot: str) -> list:
                 users_dict[u['telegram_id']] = u
                 
     return list(users_dict.values())
+
+async def get_global_user_stats() -> dict:
+    """Aggregates user statistics across all active bot databases with deduplication."""
+    stats = {
+        "total_users": 0, "super_admins": 0, "admins": 0,
+        "whitelisted": 0, "blacklisted": 0, "pending": 0,
+        "registered_today": 0
+    }
+    
+    try:
+        from datetime import datetime
+        all_users = {}
+        for b in ['drive', 'mega', 'rclone']:
+            try:
+                repo = get_account_repo(b)
+                users = await repo.get_all()
+                for u in users:
+                    all_users[u['telegram_id']] = u
+            except Exception:
+                pass
+                
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        
+        for u in all_users.values():
+            stats["total_users"] += 1
+            role = u.get('role', '')
+            if role == 'super_admin': stats["super_admins"] += 1
+            elif role == 'admin': stats["admins"] += 1
+            elif role == 'whitelisted': stats["whitelisted"] += 1
+            elif role == 'blacklisted': stats["blacklisted"] += 1
+            elif role == 'pending': stats["pending"] += 1
+            
+            req_at = u.get('requested_at')
+            if req_at and str(req_at).startswith(today_str):
+                stats["registered_today"] += 1
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug(f"Failed to get global stats: {e}")
+        
+    return stats
+
+async def get_all_active_transfers() -> list:
+    """Fetches all active transfers across all bot databases."""
+    active_transfers = []
+    for bot_name in ['drive', 'mega', 'rclone']:
+        try:
+            repo = get_transfer_repo(bot_name)
+            if not repo: continue
+            
+            # Use raw query since BaseFileTransferRepository doesn't have get_active directly
+            query = f"SELECT * FROM {repo.table_name} WHERE status IN ('queued', 'downloading', 'processing', 'uploading')"
+            transfers = await repo.fetch_all(query, [])
+            for t in transfers:
+                t['bot_provider'] = bot_name
+                active_transfers.append(t)
+        except Exception:
+            pass
+    return active_transfers
+
+async def signal_kill_transfer(bot_name: str, transfer_id: int):
+    """Sets transfer status to 'cancelled' in DB so the bot process will pick it up and abort."""
+    try:
+        repo = get_transfer_repo(bot_name)
+        if repo:
+            query = f"UPDATE {repo.table_name} SET status = 'cancelled', error_message = 'Cancelled by administrator' WHERE id = ?"
+            await repo.execute(query, (transfer_id,))
+            return True
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to kill transfer {transfer_id} in {bot_name}: {e}")
+    return False

@@ -49,7 +49,7 @@ class TransferExecutor:
                 'telegram_id': telegram_id,
                 'username': update.message.from_user.username
             }
-            return await cls._handle_queueing(tracker, update, telegram_id, transfer_data)
+            return await cls._handle_queueing(tracker, update, telegram_id, transfer_data, ctx)
         
         if not await cls._check_quota(update, ctx, telegram_id):
             return False
@@ -105,10 +105,23 @@ class TransferExecutor:
             )
             await preparing_message.edit_text(download_init_text, parse_mode="HTML")
             
+            # Create DB record at the start
+            db_id = ctx.user_data.pop('queued_db_id', None) if ctx and ctx.user_data else None
+            transfer_repo = ctx.bot_data.get('transfer_repo')
+            if transfer_repo:
+                if db_id:
+                    await transfer_repo.update_status(db_id, 'downloading')
+                else:
+                    db_id = await cls._create_transfer_record(
+                        ctx, telegram_id, username,
+                        getattr(file, 'file_id', None), file_name, getattr(file, 'mime_type', None),
+                        file_size_bytes, 'file', 'telegram', 'downloading'
+                    )
+
             temp_file_path = await cls._with_retry(
                 cls._execute_telegram_download,
                 tracker, transfer_id, download_manager, telegram_id, message_id, chat_id, 
-                file_size_bytes, file_name, preparing_message, ctx, getattr(file, 'file_id', None)
+                file_size_bytes, file_name, preparing_message, ctx, getattr(file, 'file_id', None), db_id
             )
             
             if forwarded_msg:
@@ -130,8 +143,7 @@ class TransferExecutor:
                     current_account = ctx.user_data.get("current_account", "default_account")
                     account_data = ctx.user_data.get("account_data", {}).get(current_account, {})
                     last_accessed = account_data.get("last_accessed", 0)
-                    import time
-                    if time.time() - last_accessed < 86400: # 1 day timeout
+                    if time() - last_accessed < 86400: # 1 day timeout
                         if account_data.get("current_folder") and account_data["current_folder"] != "root":
                             parent_id = account_data["current_folder"]
             
@@ -150,7 +162,7 @@ class TransferExecutor:
             upload_result = await cls._with_retry(
                 cls._execute_cloud_upload,
                 tracker, transfer_id, upload_manager, temp_file_path, file_name,
-                telegram_id, parent_id, getattr(file, 'mime_type', None), preparing_message, provider_display, ctx
+                telegram_id, parent_id, getattr(file, 'mime_type', None), preparing_message, provider_display, ctx, db_id
             )
             
             await cls._send_completion_message(
@@ -158,11 +170,8 @@ class TransferExecutor:
                 upload_result['file_name'], provider_display, file_size_bytes
             )
             
-            await cls._record_transfer(
-                ctx, telegram_id, update.message.from_user.username,
-                file.file_id, file_name, getattr(file, 'mime_type', None),
-                file_size_bytes, 'file', 'telegram'
-            )
+            if transfer_repo and db_id:
+                await transfer_repo.update_status(db_id, 'completed')
             
             from shared.managers.QuotaManager import get_quota_manager
             await get_quota_manager().consume_quota(str(telegram_id), file_size_bytes)
@@ -170,8 +179,16 @@ class TransferExecutor:
             return True
             
         except Exception as e:
-            logger.error(f"File transfer failed: {e}")
-            await update.message.reply_text(f"❌ Upload failed: {str(e)}")
+            if "Cancelled by administrator" in str(e):
+                logger.info(f"File transfer {transfer_id} was cancelled by administrator.")
+                await update.message.reply_text(f"❌ Transfer cancelled by administrator.")
+            else:
+                logger.error(f"File transfer failed: {e}")
+                await update.message.reply_text(f"❌ Upload failed: {str(e)}")
+                
+            if 'db_id' in locals() and db_id and ctx.bot_data.get('transfer_repo'):
+                await ctx.bot_data['transfer_repo'].update_status(db_id, 'failed', error_message=str(e))
+                
             await tracker.finish_transfer(transfer_id, success=False)
             return False
         finally:
@@ -205,7 +222,7 @@ class TransferExecutor:
                 'telegram_id': telegram_id,
                 'username': update.message.from_user.username
             }
-            return await cls._handle_queueing(tracker, update, telegram_id, transfer_data)
+            return await cls._handle_queueing(tracker, update, telegram_id, transfer_data, ctx)
         
         if not await cls._check_quota(update, ctx, telegram_id):
             return False
@@ -223,10 +240,23 @@ class TransferExecutor:
             preparing_message = await update.message.reply_text('Preparing download...')
             download_manager = get_service_provider().get_download_manager()
             
+            # Create DB record at the start
+            db_id = ctx.user_data.pop('queued_db_id', None) if ctx and ctx.user_data else None
+            transfer_repo = ctx.bot_data.get('transfer_repo')
+            if transfer_repo:
+                if db_id:
+                    await transfer_repo.update_status(db_id, 'downloading')
+                else:
+                    db_id = await cls._create_transfer_record(
+                        ctx, telegram_id, update.message.from_user.username or "Unknown",
+                        None, file_name, "application/octet-stream",
+                        None, 'url', url, 'downloading'
+                    )
+            
             # Phase 1: Download from URL
             temp_file_path = await cls._with_retry(
                 cls._execute_url_download,
-                tracker, transfer_id, download_manager, url, preparing_message
+                tracker, transfer_id, download_manager, url, preparing_message, ctx, db_id
             )
             
             file_name = os.path.basename(temp_file_path)
@@ -245,8 +275,7 @@ class TransferExecutor:
                     current_account = ctx.user_data.get("current_account", "default_account")
                     account_data = ctx.user_data.get("account_data", {}).get(current_account, {})
                     last_accessed = account_data.get("last_accessed", 0)
-                    import time
-                    if time.time() - last_accessed < 86400: # 1 day timeout
+                    if time() - last_accessed < 86400: # 1 day timeout
                         if account_data.get("current_folder") and account_data["current_folder"] != "root":
                             parent_id = account_data["current_folder"]
             
@@ -257,7 +286,7 @@ class TransferExecutor:
             upload_result = await cls._with_retry(
                 cls._execute_cloud_upload,
                 tracker, transfer_id, upload_manager, temp_file_path, file_name,
-                telegram_id, parent_id, "application/octet-stream", preparing_message, provider_display, ctx
+                telegram_id, parent_id, "application/octet-stream", preparing_message, provider_display, ctx, db_id
             )
             
             await cls._send_completion_message(
@@ -265,11 +294,8 @@ class TransferExecutor:
                 upload_result['file_name'], provider_display, file_size_bytes
             )
             
-            await cls._record_transfer(
-                ctx, telegram_id, update.message.from_user.username,
-                upload_result.get('file_id'), file_name, "application/octet-stream",
-                file_size_bytes, 'url', url
-            )
+            if transfer_repo and db_id:
+                await transfer_repo.update_status(db_id, 'completed', bytes_transferred=file_size_bytes)
             
             from shared.managers.QuotaManager import get_quota_manager
             await get_quota_manager().consume_quota(str(telegram_id), file_size_bytes)
@@ -277,8 +303,16 @@ class TransferExecutor:
             return True
             
         except Exception as e:
-            logger.error(f"URL transfer failed: {e}")
-            await update.message.reply_text(f"❌ Upload failed: {str(e)}")
+            if "Cancelled by administrator" in str(e):
+                logger.info(f"URL transfer {transfer_id} was cancelled by administrator.")
+                await update.message.reply_text(f"❌ Transfer cancelled by administrator.")
+            else:
+                logger.error(f"URL transfer failed: {e}")
+                await update.message.reply_text(f"❌ Upload failed: {str(e)}")
+                
+            if 'db_id' in locals() and db_id and ctx.bot_data.get('transfer_repo'):
+                await ctx.bot_data['transfer_repo'].update_status(db_id, 'failed', error_message=str(e))
+                
             await tracker.finish_transfer(transfer_id, success=False)
             return False
         finally:
@@ -302,11 +336,21 @@ class TransferExecutor:
 
 
     @classmethod
-    async def _execute_telegram_download(cls, tracker, transfer_id, download_manager, telegram_id, message_id, chat_id, file_size, file_name, preparing_message, ctx=None, file_id=None):
+    async def _execute_telegram_download(cls, tracker, transfer_id, download_manager, telegram_id, message_id, chat_id, file_size, file_name, preparing_message, ctx=None, file_id=None, db_id=None):
         dl_start = datetime.now()
         bot_uname = f"@{ctx.bot.username}" if ctx and ctx.bot.username else "@CloudVerseBot"
+        transfer_repo = ctx.bot_data.get('transfer_repo') if ctx else None
+        
+        last_db_check = [0]
         
         async def tg_progress(downloaded, total):
+            now = time()
+            if db_id and transfer_repo and (now - last_db_check[0] > 5):
+                last_db_check[0] = now
+                record = await transfer_repo.get(db_id)
+                if record and record.get('status') == 'cancelled':
+                    raise Exception("Cancelled by administrator")
+                    
             await tracker.update_transfer_progress(
                 transfer_id, downloaded, total,
                 "Downloading",
@@ -326,8 +370,18 @@ class TransferExecutor:
         )
 
     @classmethod
-    async def _execute_url_download(cls, tracker, transfer_id, download_manager, url, preparing_message):
+    async def _execute_url_download(cls, tracker, transfer_id, download_manager, url, preparing_message, ctx=None, db_id=None):
+        transfer_repo = ctx.bot_data.get('transfer_repo') if ctx else None
+        last_db_check = [0]
+        
         async def http_progress(downloaded, total):
+            now = time()
+            if db_id and transfer_repo and (now - last_db_check[0] > 5):
+                last_db_check[0] = now
+                record = await transfer_repo.get(db_id)
+                if record and record.get('status') == 'cancelled':
+                    raise Exception("Cancelled by administrator")
+                    
             await tracker.update_transfer_progress(
                 transfer_id, downloaded, total,
                 "Downloading",
@@ -349,14 +403,27 @@ class TransferExecutor:
 
     @classmethod
     async def _execute_cloud_upload(cls, tracker, transfer_id, upload_manager, temp_file_path, file_name, 
-                                    telegram_id, parent_id, mime_type, preparing_message, provider_display, ctx):
+                                    telegram_id, parent_id, mime_type, preparing_message, provider_display, ctx, db_id=None):
         await preparing_message.edit_text(
             f"<b>Uploading to {provider_display}…</b>"
         )
         ul_start = datetime.now()
         bot_uname = f"@{ctx.bot.username}" if ctx and ctx.bot.username else "@CloudVerseBot"
+        transfer_repo = ctx.bot_data.get('transfer_repo') if ctx else None
+        
+        if transfer_repo and db_id:
+            await transfer_repo.update_status(db_id, 'uploading')
+            
+        last_db_check = [0]
         
         async def up_progress(uploaded, total):
+            now = time()
+            if db_id and transfer_repo and (now - last_db_check[0] > 5):
+                last_db_check[0] = now
+                record = await transfer_repo.get(db_id)
+                if record and record.get('status') == 'cancelled':
+                    raise Exception("Cancelled by administrator")
+                    
             await tracker.update_transfer_progress(
                 transfer_id, uploaded, total,
                 "Uploading",
@@ -386,7 +453,26 @@ class TransferExecutor:
                 logger.debug(f"Failed to cleanup temp file: {e}")
 
     @classmethod
-    async def _handle_queueing(cls, tracker, update: Update, telegram_id: int, transfer_data: dict) -> bool:
+    async def _handle_queueing(cls, tracker, update: Update, telegram_id: int, transfer_data: dict, ctx: ContextTypes.DEFAULT_TYPE = None) -> bool:
+        # Create a queued record in the database
+        db_id = None
+        if ctx and ctx.bot_data.get('transfer_repo'):
+            try:
+                db_id = await cls._create_transfer_record(
+                    ctx, telegram_id, update.message.from_user.username or "Unknown",
+                    transfer_data.get('file_info', {}).get('file_id') if transfer_data['type'] == 'file' else None,
+                    transfer_data.get('file_info', {}).get('file_name') if transfer_data['type'] == 'file' else os.path.basename(transfer_data.get('url', 'Unknown')),
+                    transfer_data.get('file_info', {}).get('mime_type') if transfer_data['type'] == 'file' else "application/octet-stream",
+                    transfer_data.get('file_info', {}).get('file_size') if transfer_data['type'] == 'file' else None,
+                    transfer_data['type'],
+                    transfer_data.get('url') if transfer_data['type'] == 'url' else 'telegram',
+                    'queued'
+                )
+                if db_id:
+                    transfer_data['db_id'] = db_id
+            except Exception as e:
+                logger.warning(f"Failed to record queued transfer in db: {e}")
+
         queue_info = await tracker.register_waiting(telegram_id, transfer_data)
         position = queue_info.get('your_position', 'unknown')
         lane = queue_info.get('lane', 'public')
@@ -421,26 +507,27 @@ class TransferExecutor:
         return True
 
     @classmethod
-    async def _record_transfer(cls, ctx: ContextTypes.DEFAULT_TYPE, telegram_id: int, username: str, 
+    async def _create_transfer_record(cls, ctx: ContextTypes.DEFAULT_TYPE, telegram_id: int, username: str, 
                                file_id: str, file_name: str, file_type: str, file_size: int, 
-                               method: str, transfer_source: str):
+                               method: str, transfer_source: str, status: str) -> int:
         transfer_repo = ctx.bot_data.get('transfer_repo')
         if transfer_repo:
             try:
-                await transfer_repo.create(
+                return await transfer_repo.create(
                     telegram_id=str(telegram_id),
                     username=username,
                     file_id=file_id,
                     file_name=file_name,
                     file_type=file_type,
                     file_size=file_size,
-                    status='completed',
+                    status=status,
                     method=method,
                     transfer_source=transfer_source,
-                    completed=datetime.now().isoformat()
+                    started=datetime.now().isoformat()
                 )
             except Exception as db_err:
                 logger.warning(f"Failed to record transfer in bot database: {db_err}")
+        return 0
 
     @classmethod
     async def _send_completion_message(cls, ctx: ContextTypes.DEFAULT_TYPE, preparing_message, file_id: str, file_name: str, provider_display: str, file_size: int = None):

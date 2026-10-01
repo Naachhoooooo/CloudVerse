@@ -19,6 +19,11 @@ async def _render_performance_panel(update: Update, ctx: ContextTypes.DEFAULT_TY
     server_manager = get_server_manager()
     server = await server_manager.get_server_stats()
     bot = await server_manager.get_bot_stats()
+    
+    from bots.administrator.utils.db_utils import get_global_user_stats
+    user_stats = await get_global_user_stats()
+    bot.update(user_stats)
+
 
     temp_display = f"{server['temperature']}°C" if server["temperature"] is not None else "N/A"
     lanes = bot["lanes"]
@@ -246,8 +251,8 @@ async def handle_server_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         await q.edit_message_text(f"🛑 <b>Terminating {bot_name.upper()} bot...</b>", parse_mode="HTML")
         
         # Kill the process
-        target_script = f"scripts/run_{bot_name.lower()}.py"
-        target_script_alt = f"scripts\\run_{bot_name.lower()}.py"
+        target_script = f"bots/{bot_name.lower()}/main.py"
+        target_script_alt = f"bots\\{bot_name.lower()}\\main.py"
         killed = False
         try:
             for p in psutil.process_iter(['pid', 'cmdline']):

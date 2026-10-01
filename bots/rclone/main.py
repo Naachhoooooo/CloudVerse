@@ -247,12 +247,18 @@ def _setup_lifecycle(app):
         register_probe("rclone_binary", rclone_probe, failures_threshold=3)
         start_health_monitoring()
 
+    # Capture this session's timestamp at startup — matches the filenames in Logger.py
+    import datetime as _dt
+    _SESSION_TS = _dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
     async def on_startup(application):
         logger.info("Setting rclone bot commands...")
         await set_bot_commands(application)
 
         import os
-        await application.bot_data['account_repo'].sync_super_admins(os.getenv("SUPER_ADMIN_ID"))
+        await application.bot_data['account_repo'].sync_super_admins(
+            os.getenv("RCLONE_SUPER_ADMIN_ID") or os.getenv("GLOBAL_SUPER_ADMIN_ID")
+        )
         logger.info("✅ Super admins synced from .env")
 
         from bots.rclone.services.RcloneService import check_binary
@@ -270,6 +276,19 @@ def _setup_lifecycle(app):
         await application.bot_data['history_repo'].safe_create(
             action_taken="BOT_STARTUP", status="SUCCESS", event_details="rclone bot started successfully."
         )
+        # Archive previous session logs → backup topic
+        from shared.managers.LogManager import archive_previous_session_logs
+        from bots.rclone.config import TeamCloudverse_GROUP_CHAT_ID, BACKUP_TOPIC_ID
+        try:
+            await archive_previous_session_logs(
+                bot=application.bot,
+                chat_id=int(TeamCloudverse_GROUP_CHAT_ID),
+                topic_id=int(BACKUP_TOPIC_ID),
+                provider_name="rclone",
+                session_timestamp=_SESSION_TS,
+            )
+        except Exception as _e:
+            logger.warning(f"[SYSTEM] Session log archive skipped: {_e}")
 
     app.post_init = on_startup
 

@@ -1,7 +1,7 @@
 """
 ConfigHelper — per-user rclone config context manager.
 
-Each user's rclone .conf file is stored as an AES-128 encrypted blob in rclone.db.
+Each user's rclone .conf file is stored as an AES-256 encrypted blob in rclone.db.
 Before every rclone command, we must:
   1. Decrypt the blob from the DB
   2. Write it to a secure NamedTemporaryFile

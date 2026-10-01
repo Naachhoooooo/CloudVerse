@@ -8,8 +8,8 @@ import os
 
 async def handle_topic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /topic command, breaking down into sub-routines."""
-    team_group = os.getenv("TEAM_CLOUDVERSE_GROUP_ID")
-    support_group = os.getenv("SUPPORT_GROUP_ID")
+    team_group = os.getenv("TEAM_CLOUDVERSE_GROUP_CHAT_ID")
+    support_group = os.getenv("CLOUDVERSE_SUPPORT_GROUP_ID")
     
     if not update.message:
         return
@@ -44,7 +44,7 @@ async def _handle_ping_all_topics(update, context):
                 await context.bot.send_message(
                     chat_id=chat_id,
                     message_thread_id=int(t_id),
-                    text=f"?? Chat ID: {chat_id}\n?? Topic ID : {t_id}",
+                    text=f"💬 Chat ID: <code>{chat_id}</code>\n📌 Topic ID: <code>{t_id}</code>",
                     parse_mode="HTML"
                 )
             except Exception as e:
@@ -61,7 +61,7 @@ async def _handle_forum_topic_ping(update, context, current_chat_id_str: str, su
     await context.bot.send_message(
         chat_id=chat_id,
         message_thread_id=thread_id,
-        text=f"{user_info}?? Chat ID: {chat_id}\n?? Topic ID : {thread_id}",
+        text=f"{user_info}💬 Chat ID: <code>{chat_id}</code>\n🧵 Topic ID: <code>{thread_id}</code>",
         parse_mode="HTML"
     )
 
@@ -69,6 +69,6 @@ async def _handle_unknown_topic_ping(update, context):
     chat_id = update.message.chat_id
     await context.bot.send_message(
         chat_id=chat_id,
-        text=f"This does not appear to be a topic in a forum group.\n?? Chat ID: {chat_id}",
+        text=f"⚠️ This does not appear to be a topic in a forum group.\n💬 Chat ID: <code>{chat_id}</code>",
         parse_mode="HTML"
     )

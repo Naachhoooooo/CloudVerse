@@ -81,23 +81,32 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         provider = ctx.bot_data['provider']
         service = await provider.get_service(telegram_id, current_account)
         
-        if service:
-             cache_key = f"list_files_{provider.__class__.__name__}_{current_account}_{current_folder}"
-             cached_files = fm_cache.get(cache_key)
-             if cached_files is not None:
-                 files = cached_files
-             else:
-                 lock = _fetch_locks.setdefault(cache_key, asyncio.Lock())
-                 async with lock:
-                     cached_files = fm_cache.get(cache_key)
-                     if cached_files is not None:
-                         files = cached_files
-                     else:
-                         files, _ = await provider.list_files(service, current_folder, page_size=100)
-                         fm_cache.set(cache_key, files)
-                 _fetch_locks.pop(cache_key, None)
+        if not service:
+            # User has no authenticated session with this cloud provider
+            msg = (
+                "⚠️ <b>Please login first.</b>\n\n"
+                "Use /login to connect your account before accessing the File Manager."
+            )
+            if q and hasattr(q, 'edit_message_text'):
+                await q.edit_message_text(msg, parse_mode="HTML")
+            elif m:
+                await m.reply_text(msg, parse_mode="HTML")
+            return
+
+        cache_key = f"list_files_{provider.__class__.__name__}_{current_account}_{current_folder}"
+        cached_files = fm_cache.get(cache_key)
+        if cached_files is not None:
+            files = cached_files
         else:
-             files = []
+            lock = _fetch_locks.setdefault(cache_key, asyncio.Lock())
+            async with lock:
+                cached_files = fm_cache.get(cache_key)
+                if cached_files is not None:
+                    files = cached_files
+                else:
+                    files, _ = await provider.list_files(service, current_folder, page_size=100)
+                    fm_cache.set(cache_key, files)
+            _fetch_locks.pop(cache_key, None)
 
         folders = [f for f in files if f["mimeType"] == "application/vnd.google-apps.folder"]
         files_list = [f for f in files if f["mimeType"] != "application/vnd.google-apps.folder"]

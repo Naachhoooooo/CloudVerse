@@ -13,18 +13,30 @@ async def _get_ticket_manager(ctx: ContextTypes.DEFAULT_TYPE):
         logger.error("TicketManager not found in bot_data. Did you initialize it?")
     return manager
 
+from shared.managers.AccessManager import access_required
+
 @handle_errors
+@access_required
 async def support_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entry point for /support command from the bot menu."""
     manager = await _get_ticket_manager(context)
     if not manager: return
 
     support_group_id = os.getenv("SUPPORT_GROUP_ID")
-    if not update.message or update.effective_chat.type != "private":
+    
+    q = getattr(update, "callback_query", None)
+    if q:
+        await q.answer()
+        msg_func = q.message.reply_text
+    else:
+        if not update.message: return
+        msg_func = update.message.reply_text
+
+    if update.effective_chat.type != "private":
         return
 
     if not support_group_id:
-        await update.message.reply_text(
+        await msg_func(
             "⚠️ <b>CloudVerse Support is currently offline.</b>\n\n"
             "The administrator has not configured the support group setup yet. Please try again later.",
             parse_mode="HTML"
@@ -40,13 +52,13 @@ async def support_command_handler(update: Update, context: ContextTypes.DEFAULT_
 
     active_ticket = await manager.get_active_ticket(telegram_id)
     if active_ticket:
-        await update.message.reply_text(
+        await msg_func(
             f"👋 Welcome back to <b>CloudVerse Support</b>!\n\n"
             f"You currently have an active ticket (<code>{active_ticket['ticket_code']}</code>). Send your message whenever you are ready.",
             parse_mode="HTML"
         )
     else:
-        await update.message.reply_text(
+        await msg_func(
             "👋 Welcome to <b>CloudVerse Support</b>!\n\n"
             "Please describe your issue in detail. Our team will review your message and reply here as soon as possible.\n\n"
             "<i>Note: Please do not spam messages, as it may delay your response.</i>",
@@ -280,6 +292,7 @@ async def support_callback_handler(update: Update, context: ContextTypes.DEFAULT
 def register_handlers(app):
     from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, filters
     app.add_handler(CommandHandler("support", support_command_handler))
+    app.add_handler(CallbackQueryHandler(support_command_handler, pattern=r"^contact_team:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, support_message_handler), group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, support_admin_reply_handler), group=2)
     app.add_handler(CallbackQueryHandler(support_callback_handler, pattern=r"^support_action:"))

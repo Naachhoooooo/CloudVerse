@@ -7,7 +7,7 @@ from pathlib import Path
 import os
 
 MEGA_BOT_TOKEN = os.getenv("MEGA_BOT_TOKEN")
-MEGA_SUPER_ADMIN_ID = os.getenv("MEGA_SUPER_ADMIN_ID")
+MEGA_SUPER_ADMIN_ID = os.getenv("MEGA_SUPER_ADMIN_ID") or os.getenv("GLOBAL_SUPER_ADMIN_ID")
 
 TeamCloudverse_GROUP_CHAT_ID = (
     os.getenv("TEAM_CLOUDVERSE_GROUP_CHAT_ID")

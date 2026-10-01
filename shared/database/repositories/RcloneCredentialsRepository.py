@@ -92,3 +92,17 @@ class RcloneCredentialsRepository(BaseProviderCredentialsRepository):
         await self.execute(query, (parallel, str(telegram_id)))
         logger.info(f"[{self.log_tag}][AUTH] Updated parallel_transfers to {parallel} for {telegram_id}")
         return True
+
+    # ── Alias methods for shared components compatibility ──
+
+    async def get_parallel_uploads(self, telegram_id: str) -> int:
+        return await self.get_parallel_transfers(telegram_id)
+
+    async def update_parallel_uploads(self, telegram_id: str, parallel: int) -> bool:
+        return await self.update_parallel_transfers(telegram_id, parallel)
+
+    async def get_default_location(self, telegram_id: str) -> str:
+        return "root"
+
+    async def update_default_location(self, telegram_id: str, location: str) -> bool:
+        return False

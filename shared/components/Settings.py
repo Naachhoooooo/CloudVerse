@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 
 
 @handle_errors
+@access_required
 async def handle_settings_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Display the Settings menu with Login/Logout based on credential state."""
     telegram_id = None
@@ -34,7 +35,8 @@ async def handle_settings_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     buttons = []
     if all_creds:
         buttons.append([InlineKeyboardButton("🚪 Logout", callback_data="logout")])
-        buttons.append([InlineKeyboardButton("📁 Update Upload Location", callback_data="update_def_location")])
+        if ctx.bot_data.get('provider_name') != 'rclone':
+            buttons.append([InlineKeyboardButton("📁 Update Upload Location", callback_data="update_def_location")])
         buttons.append([InlineKeyboardButton("⚌ Update Parallel Transfers", callback_data="handle_update_parallel_transfers")])
     else:
         buttons.append([InlineKeyboardButton("🔑 Login", callback_data="login")])

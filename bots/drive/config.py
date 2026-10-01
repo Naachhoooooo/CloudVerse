@@ -13,7 +13,7 @@ import os
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 BOT_TOKEN    = os.getenv("DRIVE_BOT_TOKEN")
-SUPER_ADMIN_ID = os.getenv("DRIVE_SUPER_ADMIN_ID")
+SUPER_ADMIN_ID = os.getenv("DRIVE_SUPER_ADMIN_ID") or os.getenv("GLOBAL_SUPER_ADMIN_ID")
 
 # ── Admin Group & Topics ─────────────────────────────────────────────────────
 # Accept new standardised key first; fall back to legacy key for smooth migration

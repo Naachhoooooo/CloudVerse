@@ -22,13 +22,14 @@ def init_shared_components(config: dict):
     pass
 
 def register_shared_handlers(app, include_bin=True, include_telethon=True):
-    from shared.components import Start, FileManager, Profile, Storage, Settings, Policy, TeamCloudverse, Support
+    from shared.components import Start, FileManager, Profile, Storage, Settings, Policy, TeamCloudverse, Support, Help, Queue
     from shared.managers import DomainManager, LogManager, ServerManager
     from shared.managers.TransferManager import TransferHandlers
 
     modules = [
         Start, FileManager, Profile, Storage,
         Settings, Policy, TeamCloudverse, Support,
+        Help, Queue,
         DomainManager, LogManager, ServerManager, TransferHandlers
     ]
     

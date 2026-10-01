@@ -99,6 +99,7 @@ async def _process_queued_transfer(app, telegram_id: int, transfer_data: Dict):
             file_info = transfer_data.get('file_info')
             if file_info:
                 update = MockUpdate(app, telegram_id, username, doc=file_info, txt=None)
+                ctx.user_data['queued_db_id'] = transfer_data.get('db_id')
                 await app.bot.send_message(
                     chat_id=telegram_id,
                     text=f"🔄 Automatic upload started: {file_info.get('file_name', 'Unknown File')}"
@@ -109,6 +110,7 @@ async def _process_queued_transfer(app, telegram_id: int, transfer_data: Dict):
             url = transfer_data.get('url')
             if url:
                 update = MockUpdate(app, telegram_id, username, doc=None, txt=url)
+                ctx.user_data['queued_db_id'] = transfer_data.get('db_id')
                 await app.bot.send_message(
                     chat_id=telegram_id,
                     text=f"🔄 Automatic download started: {url}"

@@ -122,60 +122,57 @@ class ServerStatsExtension:
         try:
             from shared.managers.TransferManager.TransferTracker import get_transfer_tracker
             tracker = get_transfer_tracker()
-            lane_stats = await tracker.get_global_lane_stats()
             
-            total_users = 0
-            super_admins = 0
-            admins = 0
-            whitelisted = 0
-            blacklisted = 0
-            pending = 0
-            registered_today = 0
+            # Use local tracker for capacity limits
+            public_capacity = tracker._queue.get_lane_limit("public") if hasattr(tracker, '_queue') else 10
+            private_capacity = tracker._queue.get_lane_limit("private") if hasattr(tracker, '_queue') else 4
+            
+            public_active, public_waiting = 0, 0
+            private_active, private_waiting = 0, 0
+            
             try:
-                from shared.database.DatabaseConnectionManager import _db_managers
-                for db_path, db_mgr in _db_managers.items():
-                    if "cloudverse_server.db" in db_path or "cloudverse_support.db" in db_path:
-                        continue
-                    try:
-                        row = await db_mgr.execute_async_query(
-                            """SELECT 
-                                COUNT(*) as total,
-                                SUM(CASE WHEN role = 'super_admin' THEN 1 ELSE 0 END) as super_admins,
-                                SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as admins,
-                                SUM(CASE WHEN role = 'whitelisted' THEN 1 ELSE 0 END) as whitelisted,
-                                SUM(CASE WHEN role = 'blacklisted' THEN 1 ELSE 0 END) as blacklisted,
-                                SUM(CASE WHEN role = 'pending' THEN 1 ELSE 0 END) as pending,
-                                SUM(CASE WHEN date(requested_at) = date('now') THEN 1 ELSE 0 END) as today
-                               FROM cloudverse_accounts
-                            """, fetch_one=True)
-                        if row:
-                            total_users += row['total'] or 0
-                            super_admins += row['super_admins'] or 0
-                            admins += row['admins'] or 0
-                            whitelisted += row['whitelisted'] or 0
-                            blacklisted += row['blacklisted'] or 0
-                            pending += row['pending'] or 0
-                            registered_today += row['today'] or 0
-                    except Exception:
-                        pass
-            except Exception as repo_err: 
-                logger.debug(f"Could not fetch total users for stats: {repo_err}")
-
+                from bots.administrator.utils.db_utils import get_all_active_transfers, get_account_repo
+                active_transfers = await get_all_active_transfers()
+                account_repo = get_account_repo("drive") # Use drive DB for roles
+                
+                # Cache roles to avoid querying DB for every transfer
+                roles_cache = {}
+                for t in active_transfers:
+                    tid = str(t.get('telegram_id', ''))
+                    if tid not in roles_cache and account_repo:
+                        if await account_repo.is_super_admin(tid): roles_cache[tid] = 'private'
+                        elif await account_repo.is_admin(tid): roles_cache[tid] = 'private'
+                        else: roles_cache[tid] = 'public'
+                    
+                    lane = roles_cache.get(tid, 'public')
+                    status = t.get('status', '')
+                    
+                    if status == 'queued':
+                        if lane == 'private': private_waiting += 1
+                        else: public_waiting += 1
+                    elif status in ('downloading', 'uploading', 'processing'):
+                        if lane == 'private': private_active += 1
+                        else: public_active += 1
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.error(f"Error getting bot stats: {e}")
+            
             return {
-                "total_users": total_users,
-                "super_admins": super_admins,
-                "admins": admins,
-                "whitelisted": whitelisted,
-                "blacklisted": blacklisted,
-                "pending": pending,
-                "registered_today": registered_today,
+                "total_users": 0,
+                "super_admins": 0,
+                "admins": 0,
+                "whitelisted": 0,
+                "blacklisted": 0,
+                "pending": 0,
+                "registered_today": 0,
                 "lanes": {
-                    "public": lane_stats.get("public", {"active": 0, "capacity": 0, "waiting": 0}),
-                    "private": lane_stats.get("private", {"active": 0, "capacity": 0, "waiting": 0}),
+                    "public": {"active": public_active, "capacity": public_capacity, "waiting": public_waiting},
+                    "private": {"active": private_active, "capacity": private_capacity, "waiting": private_waiting},
                 }
             }
         except Exception:
-            return {"total_users": 0, "super_admins": 0, "admins": 0, "whitelisted": 0, "blacklisted": 0, "pending": 0, "registered_today": 0, "lanes": {"public": {"active": 0, "capacity": 10, "waiting": 0}, "private": {"active": 0, "capacity": 6, "waiting": 0}}}
+            return {"total_users": 0, "super_admins": 0, "admins": 0, "whitelisted": 0, "blacklisted": 0, "pending": 0, "registered_today": 0, "lanes": {"public": {"active": 0, "capacity": 10, "waiting": 0}, "private": {"active": 0, "capacity": 4, "waiting": 0}}}
 
     def record_latency(self, latency_ms: float):
         if not hasattr(self, '_latency_history'):

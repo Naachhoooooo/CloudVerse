@@ -3,7 +3,7 @@ from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from shared.utils.pagination import Paginator
-from shared.managers.ServerManager import get_server_manager
+
 from shared.core.Logger import get_logger
 logger = get_logger(__name__)
 

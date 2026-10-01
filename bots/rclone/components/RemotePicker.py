@@ -335,11 +335,30 @@ async def _start_live_transfer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, s
     )
     
     async with user_config(ctx.bot_data.get('credential_repo'), str(telegram_id)) as config_path:
+        db_id = None
+        transfer_repo = ctx.bot_data.get('transfer_repo')
+        
         try:
+            if transfer_repo:
+                from datetime import datetime
+                db_id = await transfer_repo.create(
+                    telegram_id=str(telegram_id),
+                    username=update.effective_user.username or "Unknown",
+                    file_id=src,
+                    file_name=dst,
+                    file_type="rclone_transfer",
+                    file_size=0, # Unknown upfront
+                    status='uploading',
+                    method='rclone',
+                    transfer_source='rclone',
+                    started=datetime.now().isoformat()
+                )
+                
             from bots.rclone.services.RcloneService import copy_file_stream
             stream = copy_file_stream(config_path, src, dst, flags)
             
             last_edit = 0
+            last_db_check = 0
             start_time = asyncio.get_event_loop().time()
             last_transferred = "0 B"
             last_speed = "0 B/s"
@@ -349,6 +368,9 @@ async def _start_live_transfer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, s
                 
                 if progress.get('status') == 'completed':
                     duration = asyncio.get_event_loop().time() - start_time
+                    if db_id and transfer_repo:
+                        await transfer_repo.update_status(db_id, 'completed')
+                        
                     await msg.edit_text(
                         f"✅ <b>Transfer Complete</b>\n\n"
                         f"<b>Source:</b> <code>{html.escape(src)}</code>\n"
@@ -365,6 +387,12 @@ async def _start_live_transfer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, s
                     last_transferred = progress.get('transferred', last_transferred)
                     last_speed = progress.get('speed', last_speed)
                     
+                    if db_id and transfer_repo and (now - last_db_check > 5.0):
+                        last_db_check = now
+                        record = await transfer_repo.get(db_id)
+                        if record and record.get('status') == 'cancelled':
+                            raise RuntimeError("Cancelled by administrator")
+                            
                     if now - last_edit > 2.0:
                         text = (
                             f"🔄 <b>Transfer In Progress</b>\n\n"
@@ -382,14 +410,23 @@ async def _start_live_transfer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, s
                             logger.debug(f"Failed to edit progress message: {e}")
                             
         except Exception as e:
-             logger.error(f"[RCLONE][UI] Transfer failed: {e}", exc_info=True)
-             try:
-                 await msg.edit_text(
-                     f"❌ <b>Transfer Failed</b>\n\n"
-                     f"<b>Source:</b> <code>{html.escape(src)}</code>\n"
-                     f"<b>Target:</b> <code>{html.escape(dst)}</code>\n\n"
-                     f"Error: {html.escape(str(e))}", 
-                     parse_mode="HTML"
-                 )
-             except Exception:
-                 pass
+             if db_id and transfer_repo:
+                 await transfer_repo.update_status(db_id, 'failed', error_message=str(e))
+                 
+             if "Cancelled by administrator" in str(e):
+                 logger.info(f"[RCLONE] Transfer was cancelled by administrator.")
+                 try:
+                     await msg.edit_text(f"❌ <b>Transfer Cancelled</b>\n\nBy Administrator.", parse_mode="HTML")
+                 except Exception: pass
+             else:
+                 logger.error(f"[RCLONE][UI] Transfer failed: {e}", exc_info=True)
+                 try:
+                     await msg.edit_text(
+                         f"❌ <b>Transfer Failed</b>\n\n"
+                         f"<b>Source:</b> <code>{html.escape(src)}</code>\n"
+                         f"<b>Target:</b> <code>{html.escape(dst)}</code>\n\n"
+                         f"Error: {html.escape(str(e))}", 
+                         parse_mode="HTML"
+                     )
+                 except Exception:
+                     pass

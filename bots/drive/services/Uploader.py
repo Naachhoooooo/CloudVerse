@@ -442,16 +442,22 @@ class UploadManager:
         loop = asyncio.get_running_loop()
         import time
         while response is None:
+            # Check for cancellation
+            if self.active_uploads.get(upload_id, {}).get('status') == 'cancelled':
+                logger.info(f"Upload loop aborted for cancelled upload: {upload_id}")
+                raise Exception("Upload cancelled by user or administrator.")
+                
             try:
                 start_time = time.time()
                 status, response = await loop.run_in_executor(None, request.next_chunk)
                 duration = time.time() - start_time
                 if status:
                     uploaded_bytes = status.resumable_progress
-                    self.active_uploads[upload_id].update({
-                        'uploaded_bytes': uploaded_bytes,
-                        'progress_percent': (uploaded_bytes / file_size * 100) if file_size else 0
-                    })
+                    if upload_id in self.active_uploads:
+                        self.active_uploads[upload_id].update({
+                            'uploaded_bytes': uploaded_bytes,
+                            'progress_percent': (uploaded_bytes / file_size * 100) if file_size else 0
+                        })
                     if progress_callback:
                         await progress_callback(uploaded_bytes, file_size)
                     if chunk_size:

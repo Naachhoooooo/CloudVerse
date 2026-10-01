@@ -60,6 +60,7 @@ async def save_policy_content(file_path: str, content: str):
         logger.error(f"Failed to save policy file {file_path}: {e}")
         return False
 
+@access_required
 async def show_policies_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         await update.callback_query.answer()

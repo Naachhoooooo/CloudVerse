@@ -39,9 +39,9 @@ logger = get_logger(__name__)
 
 BOT_REGISTRY: Dict[str, str] = {
     "administrator": "bots/administrator/main.py",
-    "drive":  "scripts/run_drive.py",
-    "mega":   "scripts/run_mega.py",
-    "rclone": "scripts/run_rclone.py",
+    "drive":  "bots/drive/main.py",
+    "mega":   "bots/mega/main.py",
+    "rclone": "bots/rclone/main.py",
 }
 
 # Seconds to wait before restarting a crashed bot (exponential back-off applied)
@@ -115,6 +115,7 @@ def _terminate_all(processes: Dict[str, subprocess.Popen]):
             logger.info(f"  Requesting shutdown for [{name}] (PID {proc.pid})")
             if sys.platform == "win32":
                 import signal
+                import os
                 try:
                     os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
                 except Exception as e:

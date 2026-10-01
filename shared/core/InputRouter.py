@@ -72,17 +72,8 @@ async def handle_user_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # ── Parallel transfers input ───────────────────────────────────────────────
     if user_state.is_state(UserStateEnum.EXPECTING_PARALLEL_TRANSFERS):
-        if text.isdigit():
-            num = int(text)
-            if 1 <= num <= 3:
-                credential_repo = ctx.bot_data.get('credential_repo')
-                if credential_repo and await credential_repo.update_parallel_uploads(telegram_id=str(telegram_id), parallel=num):
-                    await m.reply_text(f"✅ Parallel transfer limit updated to {num}.")
-                else:
-                    await m.reply_text("❌ Failed to update parallel transfer limit.")
-                user_state.reset()
-                return
-        await m.reply_text("⚠️ Enter a number between 1 and 3.")
+        from shared.components.Settings import update_parallel_transfers
+        await update_parallel_transfers(update, ctx)
         return
 
     # ── File/folder rename & create (FileManager) ─────────────────────────────
