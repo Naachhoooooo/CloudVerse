@@ -10,7 +10,7 @@ from shared.utils.time_utils import get_limit_buttons, get_duration_buttons, for
 from shared.utils.pagination import Paginator, format_user_list_label
 from shared.managers.AccessManager import admin_required
 from shared.core.Logger import get_logger
-from bots.administrator.utils.db_utils import get_account_repo, get_history_repo, get_active_bot, cycle_active_bot, get_filter_button_text
+from bots.administrator.components.db_utils import get_account_repo, get_history_repo, get_active_bot, cycle_active_bot, get_filter_button_text
 
 TeamCloudverse_GROUP_CHAT_ID = None
 Access_TOPIC_ID = None
@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 @admin_required
 async def _get_super_admin_list(ctx: ContextTypes.DEFAULT_TYPE) -> list:
     active_bot = get_active_bot(ctx)
-    from bots.administrator.utils.db_utils import get_users_by_role_filtered
+    from bots.administrator.components.db_utils import get_users_by_role_filtered
     super_admins = await get_users_by_role_filtered("super_admin", active_bot)
     return [(sa['telegram_id'], f"{sa.get('bot_role_emoji', '👤')} {sa.get('username') or sa.get('name') or 'Unknown'}") for sa in super_admins]
 

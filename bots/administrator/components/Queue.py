@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from shared.core.Logger import get_logger
 from shared.core.ErrorHandler import handle_errors
 from shared.managers.AccessManager import admin_required
-from bots.administrator.utils.db_utils import get_all_active_transfers, signal_kill_transfer
+from bots.administrator.components.db_utils import get_all_active_transfers, signal_kill_transfer
 from shared.managers.ServerManager import get_server_manager
 
 logger = get_logger(__name__)

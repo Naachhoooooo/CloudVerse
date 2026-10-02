@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from shared.core.Logger import get_logger
 from shared.core.ErrorHandler import handle_errors
-from bots.administrator.utils.db_utils import get_account_repo
+from bots.administrator.components.db_utils import get_account_repo
 
 logger = get_logger(__name__)
 

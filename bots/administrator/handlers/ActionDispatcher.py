@@ -561,7 +561,7 @@ async def _handle_duration_input(q, update, ctx, deps, data):
                                   reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back to List", callback_data="manage_blacklist")]]))
 
 async def _handle_toggle_bot_filter(q, update, ctx):
-    from bots.administrator.utils.db_utils import cycle_active_bot
+    from bots.administrator.components.db_utils import cycle_active_bot
     cycle_active_bot(ctx)
     await q.answer("Filter updated! Please re-open the menu to see changes.", show_alert=True)
 
@@ -573,6 +573,20 @@ EXACT_HANDLERS = {
     "super_admin_prev_page": lambda q, u, c, d, _: _paginate_super_admins(q, u, c, -1),
     "super_admin_next_page": lambda q, u, c, d, _: _paginate_super_admins(q, u, c, 1),
     "toggle_bot_filter": lambda q, u, c, d, _: _handle_toggle_bot_filter(q, u, c),
+    "admin_prev_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageAdmin', fromlist=['manage_admins']).manage_admins(u, c),
+    "admin_next_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageAdmin', fromlist=['manage_admins']).manage_admins(u, c),
+    "whitelist_prev_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageWhitelisted', fromlist=['manage_whitelist']).manage_whitelist(u, c),
+    "whitelist_next_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageWhitelisted', fromlist=['manage_whitelist']).manage_whitelist(u, c),
+    "blacklist_prev_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageBlacklisted', fromlist=['manage_blacklist']).manage_blacklist(u, c),
+    "blacklist_next_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageBlacklisted', fromlist=['manage_blacklist']).manage_blacklist(u, c),
+    "requests_prev_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageRequest', fromlist=['handle_pending_requests']).handle_pending_requests(u, c),
+    "requests_next_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageRequest', fromlist=['handle_pending_requests']).handle_pending_requests(u, c),
+    "back_to_access": lambda q, u, c, d, _: __import__('bots.administrator.components.Start', fromlist=['handle_start']).handle_start(u, c),
+    "back_to_whitelist": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageWhitelisted', fromlist=['manage_whitelist']).manage_whitelist(u, c),
+    "add_whitelist": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageWhitelisted', fromlist=['manage_whitelist']).manage_whitelist(u, c),
+    "pending_requests": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageRequest', fromlist=['handle_pending_requests']).handle_pending_requests(u, c),
+    "pending_approve_all": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageRequest', fromlist=['handle_pending_requests']).handle_pending_requests(u, c),
+    "pending_reject_all": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageRequest', fromlist=['handle_pending_requests']).handle_pending_requests(u, c),
 }
 
 # Prefix string matches (checked in order)

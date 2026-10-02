@@ -1,7 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 async def build_global_user_profile(search_term: str) -> dict:
-    from bots.administrator.utils.db_utils import get_account_repo, get_usage_repo
+    from bots.administrator.components.db_utils import get_account_repo, get_usage_repo
     
     bot_contexts = ['drive', 'mega', 'rclone']
     

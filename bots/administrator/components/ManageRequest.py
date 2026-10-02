@@ -10,7 +10,7 @@ from shared.utils.time_utils import get_limit_buttons, get_duration_buttons, for
 from shared.utils.pagination import Paginator, format_user_list_label
 from shared.managers.AccessManager import admin_required
 from shared.core.Logger import get_logger
-from bots.administrator.utils.db_utils import get_account_repo, get_history_repo, get_active_bot, cycle_active_bot, get_filter_button_text
+from bots.administrator.components.db_utils import get_account_repo, get_history_repo, get_active_bot, cycle_active_bot, get_filter_button_text
 
 TeamCloudverse_GROUP_CHAT_ID = None
 Access_TOPIC_ID = None
@@ -121,7 +121,7 @@ async def _handle_pending_bulk_reject(q, ctx, current_user_id):
 
 async def _get_pending_list(ctx: ContextTypes.DEFAULT_TYPE) -> list:
     active_bot = get_active_bot(ctx)
-    from bots.administrator.utils.db_utils import get_users_by_role_filtered
+    from bots.administrator.components.db_utils import get_users_by_role_filtered
     pending = await get_users_by_role_filtered("pending", active_bot)
     return [(p['telegram_id'], f"{p.get('bot_role_emoji', '👤')} {p.get('username') or p.get('name') or 'Unknown'}") for p in pending]
 

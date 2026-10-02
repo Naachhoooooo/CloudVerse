@@ -8,7 +8,7 @@ from shared.managers.AccessManager import admin_required
 
 logger = get_logger(__name__)
 
-from bots.administrator.utils.db_utils import get_account_repo
+from bots.administrator.components.db_utils import get_account_repo
 
 class DummyQuery:
     def __init__(self, message, user):

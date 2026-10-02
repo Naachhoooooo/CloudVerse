@@ -34,7 +34,7 @@ async def _render_broadcast_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     if not user:
         return
 
-    from bots.administrator.utils.db_utils import get_account_repo
+    from bots.administrator.components.db_utils import get_account_repo
     
     # Check permissions using active bot's repo for simplicity, as admins should be synced
     account_repo = get_account_repo("drive")
@@ -106,7 +106,7 @@ async def handle_broadcast_callback(update: Update, ctx: ContextTypes.DEFAULT_TY
         await _render_broadcast_menu(update, ctx)
         return
         
-    from bots.administrator.utils.db_utils import get_account_repo
+    from bots.administrator.components.db_utils import get_account_repo
     account_repo = get_account_repo("drive")
 
     is_super = await account_repo.is_super_admin(telegram_id=user.id)
@@ -177,7 +177,7 @@ async def handle_broadcast_callback(update: Update, ctx: ContextTypes.DEFAULT_TY
 
             target_users = ctx.bot_data.pop(f"broadcast_targets_{request_id}", [])
             if not target_users:
-                from bots.administrator.utils.db_utils import get_account_repo
+                from bots.administrator.components.db_utils import get_account_repo
                 account_repo = get_account_repo("drive")
                 whitelisted_users = await account_repo.get_by_role(role='whitelisted')
                 target_users = [u for u in whitelisted_users if not await account_repo.is_admin(telegram_id=u['telegram_id'])]
@@ -247,7 +247,7 @@ async def handle_broadcast_callback(update: Update, ctx: ContextTypes.DEFAULT_TY
             return
         request_id = int(data.split(":")[1])
         manager = get_broadcast_manager()
-        from bots.administrator.utils.db_utils import get_broadcast_repo
+        from bots.administrator.components.db_utils import get_broadcast_repo
         broadcast_repo = get_broadcast_repo("drive")
         await manager.reject_broadcast(request_id, broadcast_repo, user.username)
         text = (
@@ -307,7 +307,7 @@ async def handle_broadcast_media_message(update: Update, ctx: ContextTypes.DEFAU
         return
 
     user = update.message.from_user
-    from bots.administrator.utils.db_utils import get_account_repo, get_broadcast_repo
+    from bots.administrator.components.db_utils import get_account_repo, get_broadcast_repo
     account_repo = get_account_repo("drive")
     if not await account_repo.is_admin(telegram_id=user.id):
         return

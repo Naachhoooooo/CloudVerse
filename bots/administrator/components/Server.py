@@ -20,7 +20,7 @@ async def _render_performance_panel(update: Update, ctx: ContextTypes.DEFAULT_TY
     server = await server_manager.get_server_stats()
     bot = await server_manager.get_bot_stats()
     
-    from bots.administrator.utils.db_utils import get_global_user_stats
+    from bots.administrator.components.db_utils import get_global_user_stats
     user_stats = await get_global_user_stats()
     bot.update(user_stats)
 
@@ -150,7 +150,7 @@ async def handle_server_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         telegram_id = q.from_user.id
         username = q.from_user.username or "Unknown"
         
-        from bots.administrator.utils.db_utils import get_account_repo
+        from bots.administrator.components.db_utils import get_account_repo
         account_repo = get_account_repo("drive")
         if not account_repo or not await account_repo.is_super_admin(telegram_id=telegram_id):
             await q.answer("❌ Access denied. Super Admin privileges required.", show_alert=True)
@@ -194,7 +194,7 @@ async def handle_server_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             await q.answer("❌ Only the user who initiated termination can confirm it.", show_alert=True)
             return
         
-        from bots.administrator.utils.db_utils import get_account_repo
+        from bots.administrator.components.db_utils import get_account_repo
         account_repo = get_account_repo("drive")
         if not account_repo or not await account_repo.is_super_admin(telegram_id=current_user_id):
             await q.answer("❌ Access denied.", show_alert=True)
@@ -222,7 +222,7 @@ async def handle_server_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         
         # UI Logic for terminate bot request
         telegram_id = q.from_user.id
-        from bots.administrator.utils.db_utils import get_account_repo
+        from bots.administrator.components.db_utils import get_account_repo
         account_repo = get_account_repo("drive")  # Any bot's DB is fine for super admin check
         if not account_repo or not await account_repo.is_super_admin(telegram_id=telegram_id):
             await q.answer("❌ Super Admin privileges required.", show_alert=True)

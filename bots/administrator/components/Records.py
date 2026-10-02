@@ -37,7 +37,7 @@ async def handle_records_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE
         await _render_delete_records(q, m, ctx)
         return
     elif data == "toggle_bot_filter":
-        from bots.administrator.utils.db_utils import cycle_active_bot
+        from bots.administrator.components.db_utils import cycle_active_bot
         cycle_active_bot(ctx)
         await _render_delete_records(q, m, ctx)
         return
@@ -77,7 +77,7 @@ async def handle_records_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE
         
         prompt = f"⚙️ <b>Records</b> > 🗑️ <b>Delete User</b>\n\nYou are about to delete records for: <b>{username}</b>\n\nWhere would you like to delete the records from?"
         
-        from bots.administrator.utils.db_utils import get_account_repo
+        from bots.administrator.components.db_utils import get_account_repo
         buttons = []
         user_in_bots = 0
         
@@ -114,7 +114,7 @@ async def handle_records_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE
         expected = f"delete {identifier} {target_str}".lower()
         typed = m.text.strip().lower()
         
-        from bots.administrator.utils.db_utils import get_account_repo
+        from bots.administrator.components.db_utils import get_account_repo
         
         # Check if they are Super Admin anywhere
         is_super = False
@@ -158,7 +158,7 @@ async def handle_records_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE
             await m.reply_text(f"❌ Incorrect confirmation. Please type exactly: <code>{expected}</code>", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="handle_delete_records")]]), parse_mode="HTML")
 
 async def _get_user_display_list(ctx):
-    from bots.administrator.utils.db_utils import get_active_bot, get_all_active_users_filtered
+    from bots.administrator.components.db_utils import get_active_bot, get_all_active_users_filtered
     from shared.utils.pagination import format_user_list_label
     
     active_bot = get_active_bot(ctx)
@@ -177,7 +177,7 @@ async def _render_delete_records(q, m, ctx):
     page = ctx.user_data.get("delete_records_page", 0)
     user_display = await _get_user_display_list(ctx)
     
-    from bots.administrator.utils.db_utils import get_active_bot, get_filter_button_text
+    from bots.administrator.components.db_utils import get_active_bot, get_filter_button_text
     
     paginator = Paginator(user_display, page, 10)
     page_users = paginator.items

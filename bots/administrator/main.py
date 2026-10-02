@@ -32,7 +32,7 @@ async def post_init(application):
     logger.info("Bot commands updated.")
     
     # Set a default account repo for the admin_required decorator checks
-    from bots.administrator.utils.db_utils import get_account_repo
+    from bots.administrator.components.db_utils import get_account_repo
     application.bot_data['account_repo'] = get_account_repo('drive')
 
     from shared.managers.AlertManager import get_alert_manager
@@ -114,7 +114,7 @@ def main():
                 raise ApplicationHandlerStop()
                 
             
-        from bots.administrator.utils.db_utils import get_account_repo
+        from bots.administrator.components.db_utils import get_account_repo
         
         is_admin = False
         for bot_name in ['drive', 'mega', 'rclone']:
@@ -200,7 +200,7 @@ def main():
     # Text handlers for inputs
     async def global_text_handler(update, ctx):
         if ctx.user_data.get("awaiting_quota_input"):
-            from bots.administrator.utils.db_utils import get_active_bot
+            from bots.administrator.components.db_utils import get_active_bot
             from shared.core.Config import get_bot_db_path
             from shared.database.repositories.UsageRepository import UsageRepository
             bot_name = get_active_bot(ctx) or 'drive'

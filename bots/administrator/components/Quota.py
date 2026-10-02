@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 from shared.utils.pagination import Paginator
 from shared.utils.pagination import Paginator, format_user_list_label
 from shared.core.Logger import get_logger
-from bots.administrator.utils.db_utils import get_account_repo, get_active_bot, cycle_active_bot, get_filter_button_text, get_usage_repo, get_transfer_repo
+from bots.administrator.components.db_utils import get_account_repo, get_active_bot, cycle_active_bot, get_filter_button_text, get_usage_repo, get_transfer_repo
 
 logger = get_logger(__name__)
 
@@ -22,7 +22,7 @@ async def _render_quota_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     current_page = ctx.user_data.get("quota_page", 0)
     
     active_bot = get_active_bot(ctx)
-    from bots.administrator.utils.db_utils import get_all_active_users_filtered
+    from bots.administrator.components.db_utils import get_all_active_users_filtered
     regular_users = await get_all_active_users_filtered(active_bot)
     
     q = getattr(update, "callback_query", None)
