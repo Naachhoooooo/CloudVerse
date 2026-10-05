@@ -49,15 +49,32 @@ class RcloneProvider(ProviderInterface):
 
     # ── Service acquisition ───────────────────────────────────────────────────
 
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def _resolve_service(self, service: Any):
+        if isinstance(service, tuple) and len(service) == 2:
+            remote, config_or_tid = service
+            if isinstance(config_or_tid, int):
+                from bots.rclone.services.ConfigHelper import user_config
+                async with user_config(self.credential_repo, str(config_or_tid)) as config_path:
+                    yield remote, config_path
+            else:
+                yield remote, config_or_tid
+        else:
+            yield None, None
+
+
+    def __init__(self):
+        self.credential_repo = None
+
     async def get_service(
         self, telegram_id: int, account_identifier: Any = None
     ) -> Any:
         """
-        For rclone the 'service' is the selected remote name string.
-        Returns first available remote from user's config, or account_identifier if provided.
+        For rclone the 'service' is a tuple (remote_name, telegram_id).
         """
         if account_identifier and account_identifier != "default_account":
-            return account_identifier
+            return (account_identifier, telegram_id)
         # No specific remote selected — just indicate no service yet
         return None
 
@@ -67,32 +84,23 @@ class RcloneProvider(ProviderInterface):
     # ── Storage ───────────────────────────────────────────────────────────────
 
     async def get_storage_info(self, service: Any) -> Dict[str, Any]:
-        """
-        Get storage quota from rclone about --json for the selected remote.
-        service = remote name, ctx_or_repo = needs credential_repo passed externally.
-        Because ProviderInterface doesn't carry ctx here, storage info must use
-        a pre-established config_path from the caller context.
-        Returns storageQuota compatible dict.
-        """
-        # service is expected to be a tuple (remote_name, config_path) when called
-        # from StorageDetails component (which has access to ctx)
-        if isinstance(service, tuple) and len(service) == 2:
-            remote, config_path = service
-        else:
-            logger.warning("[RCLONE] get_storage_info called without config_path")
-            return {"storageQuota": {"limit": "0", "usage": "0", "usageInDriveTrash": "0"}}
-        try:
-            info = await RcloneService.get_storage_info(config_path, remote)
-            return {
-                "storageQuota": {
-                    "limit": str(info.get("total") or 0),
-                    "usage": str(info.get("used") or 0),
-                    "usageInDriveTrash": str(info.get("trashed") or 0),
+        async with self._resolve_service(service) as (remote, config_path):
+            if not config_path:
+                logger.warning("[RCLONE] get_storage_info called without config_path")
+                return {"storageQuota": {"limit": "0", "usage": "0", "usageInDriveTrash": "0"}}
+            try:
+                info = await RcloneService.get_storage_info(config_path, remote)
+                return {
+                    "storageQuota": {
+                        "limit": str(info.get("total") or 0),
+                        "usage": str(info.get("used") or 0),
+                        "usageInDriveTrash": str(info.get("trashed") or 0),
+                        "free": str(info.get("free") or 0)
+                    }
                 }
-            }
-        except Exception as e:
-            logger.warning(f"[RCLONE] get_storage_info failed for {remote}: {e}")
-            return {"storageQuota": {"limit": "0", "usage": "0", "usageInDriveTrash": "0"}}
+            except Exception as e:
+                logger.warning(f"[RCLONE] get_storage_info failed for {remote}: {e}")
+                return {"storageQuota": {"limit": "0", "usage": "0", "usageInDriveTrash": "0", "free": "0"}}
 
     # ── File listing ──────────────────────────────────────────────────────────
 
@@ -108,36 +116,32 @@ class RcloneProvider(ProviderInterface):
         page_token: Optional[str] = None,
         page_size: int = 10,
     ) -> Tuple[List[Dict], Optional[str]]:
-        """
-        service = (remote_name, config_path) for per-user config.
-        """
-        if isinstance(service, tuple) and len(service) == 2:
-            remote, config_path = service
-        else:
-            return [], None
+        async with self._resolve_service(service) as (remote, config_path):
+            if not config_path:
+                return [], None
 
-        path = "" if folder_id in ("root", "None", None, "") else folder_id
-        if path and not path.endswith("/"):
-            path += "/"
-        try:
-            items = await RcloneService.list_files(config_path, remote, path)
-            formatted = [
-                {
-                    "id": item["Path"] if path == "" else f"{path}{item['Path']}",
-                    "name": item["Name"],
-                    "mimeType": (
-                        "application/vnd.google-apps.folder"
-                        if item["IsDir"]
-                        else item.get("MimeType", "application/octet-stream")
-                    ),
-                    "size": str(item.get("Size", 0)),
-                }
-                for item in items
-            ]
-            return formatted, None
-        except Exception as e:
-            logger.error(f"[RCLONE] list_files failed for {remote}: {e}", exc_info=True)
-            return [], None
+            path = "" if folder_id in ("root", "None", None, "") else folder_id
+            if path and not path.endswith("/"):
+                path += "/"
+            try:
+                items = await RcloneService.list_files(config_path, remote, path)
+                formatted = [
+                    {
+                        "id": item["Path"] if path == "" else f"{path}{item['Path']}",
+                        "name": item["Name"],
+                        "mimeType": (
+                            "application/vnd.google-apps.folder"
+                            if item["IsDir"]
+                            else item.get("MimeType", "application/octet-stream")
+                        ),
+                        "size": str(item.get("Size", 0)),
+                    }
+                    for item in items
+                ]
+                return formatted, None
+            except Exception as e:
+                logger.error(f"[RCLONE] list_files failed for {remote}: {e}", exc_info=True)
+                return [], None
 
     async def list_trashed_files(
         self,
@@ -153,46 +157,40 @@ class RcloneProvider(ProviderInterface):
     async def create_folder(
         self, service: Any, name: str, parent_id: Optional[str] = None
     ) -> Any:
-        """service = (remote_name, config_path)."""
-        if isinstance(service, tuple) and len(service) == 2:
-            remote, config_path = service
-        else:
-            return name
-        root = parent_id if parent_id and parent_id != "root" else ""
-        path = f"{remote}{root}/{name}".lstrip("/")
-        try:
-            await RcloneService.mkdir(config_path, path)
-            return {"id": path}
-        except Exception as e:
-            logger.error(f"[RCLONE] create_folder failed: {e}", exc_info=True)
-            raise
+        async with self._resolve_service(service) as (remote, config_path):
+            if not config_path:
+                return name
+            root = parent_id if parent_id and parent_id != "root" else ""
+            path = f"{remote}{root}/{name}".lstrip("/")
+            try:
+                await RcloneService.mkdir(config_path, path)
+                return {"id": path}
+            except Exception as e:
+                logger.error(f"[RCLONE] create_folder failed: {e}", exc_info=True)
+                raise
 
     async def rename_file(self, service: Any, file_id: str, new_name: str) -> Any:
-        """rclone moveto for renaming. service = (remote_name, config_path)."""
-        if isinstance(service, tuple) and len(service) == 2:
-            remote, config_path = service
-        else:
-            return False
-        parent = "/".join(file_id.rstrip("/").split("/")[:-1])
-        new_path = f"{parent}/{new_name}" if parent else new_name
-        try:
-            await RcloneService.move_file(config_path, f"{remote}{file_id}", f"{remote}{new_path}")
-            return {"id": new_path, "name": new_name}
-        except Exception as e:
-            logger.error(f"[RCLONE] rename_file failed: {e}", exc_info=True)
-            return False
+        async with self._resolve_service(service) as (remote, config_path):
+            if not config_path:
+                return False
+            parent = "/".join(file_id.rstrip("/").split("/")[:-1])
+            new_path = f"{parent}/{new_name}" if parent else new_name
+            try:
+                await RcloneService.move_file(config_path, f"{remote}{file_id}", f"{remote}{new_path}")
+                return {"id": new_path, "name": new_name}
+            except Exception as e:
+                logger.error(f"[RCLONE] rename_file failed: {e}", exc_info=True)
+                return False
 
     async def delete_file(self, service: Any, file_id: str) -> bool:
-        """service = (remote_name, config_path)."""
-        if isinstance(service, tuple) and len(service) == 2:
-            remote, config_path = service
-        else:
-            return False
-        try:
-            return await RcloneService.delete_file(config_path, remote, file_id)
-        except Exception as e:
-            logger.error(f"[RCLONE] delete_file failed for {file_id}: {e}", exc_info=True)
-            return False
+        async with self._resolve_service(service) as (remote, config_path):
+            if not config_path:
+                return False
+            try:
+                return await RcloneService.delete_file(config_path, remote, file_id)
+            except Exception as e:
+                logger.error(f"[RCLONE] delete_file failed for {file_id}: {e}", exc_info=True)
+                return False
 
     async def toggle_sharing(self, service: Any, file_id: str) -> None:
         """rclone sharing not universally supported."""
@@ -203,25 +201,23 @@ class RcloneProvider(ProviderInterface):
         return ""
 
     async def get_file_metadata(self, service: Any, file_id: str) -> Dict:
-        """service = (remote_name, config_path)."""
-        if isinstance(service, tuple) and len(service) == 2:
-            remote, config_path = service
-        else:
-            return {}
-        try:
-            items = await RcloneService.list_files(config_path, remote, file_id)
-            if items:
-                item = items[0]
-                return {
-                    "id": file_id,
-                    "name": item.get("Name", file_id.split("/")[-1]),
-                    "size": item.get("Size", 0),
-                    "mimeType": "application/vnd.google-apps.folder" if item.get("IsDir") else item.get("MimeType", "application/octet-stream")
-                }
-            return {}
-        except Exception as e:
-            logger.warning(f"[RCLONE] get_file_metadata failed for {file_id}: {e}")
-            return {}
+        async with self._resolve_service(service) as (remote, config_path):
+            if not config_path:
+                return {}
+            try:
+                items = await RcloneService.list_files(config_path, remote, file_id)
+                if items:
+                    item = items[0]
+                    return {
+                        "id": file_id,
+                        "name": item.get("Name", file_id.split("/")[-1]),
+                        "size": item.get("Size", 0),
+                        "mimeType": "application/vnd.google-apps.folder" if item.get("IsDir") else item.get("MimeType", "application/octet-stream")
+                    }
+                return {}
+            except Exception as e:
+                logger.warning(f"[RCLONE] get_file_metadata failed for {file_id}: {e}")
+                return {}
 
     async def restore_file(self, service: Any, file_id: str) -> Any:
         """rclone has no unified trash — restore is a no-op."""
@@ -249,10 +245,13 @@ class RcloneProvider(ProviderInterface):
             "• Windows: `%APPDATA%\\rclone\\rclone.conf`\n\n"
             "Run `rclone config` to create one if you haven't already."
         )
+        from telegram import ReplyKeyboardMarkup
+        cancel_markup = ReplyKeyboardMarkup([["Cancel"]], resize_keyboard=True, one_time_keyboard=True)
         if update.callback_query:
             await update.callback_query.edit_message_text(msg, parse_mode="HTML")
+            await update.callback_query.message.reply_text("Please upload the file now:", reply_markup=cancel_markup)
         else:
-            await update.message.reply_text(msg, parse_mode="HTML")
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=cancel_markup)
 
         user_state.set_state(UserStateEnum.EXPECTING_RCLONE_CONFIG)
         logger.info(f"[RCLONE][AUTH] Config upload prompt sent for user {telegram_id}")

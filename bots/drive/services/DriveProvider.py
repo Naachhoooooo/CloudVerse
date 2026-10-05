@@ -151,7 +151,9 @@ class DriveProvider(ProviderInterface):
                 await update.message.reply_text("Enter the authorization code:", reply_markup=ReplyKeyboardMarkup([["Cancel"]], resize_keyboard=True, one_time_keyboard=True))
 
             user_state.set_state(UserStateEnum.EXPECTING_CODE)
-            user_state.data["flow"] = flow
+            if not hasattr(self, "_flows"):
+                self._flows = {}
+            self._flows[telegram_id] = flow
             logger.info(f"Drive OAuth flow started for user {telegram_id}")
         except Exception as e:
             logger.error(f"Failed to start Drive OAuth flow for {telegram_id}: {e}", exc_info=True)
@@ -181,6 +183,11 @@ class DriveProvider(ProviderInterface):
             text = update.message.text.strip() if update.message.text else ""
             if text.startswith("/"):
                 user_state.reset()
+            elif text.lower() == "cancel":
+                from telegram import ReplyKeyboardRemove
+                user_state.reset()
+                await update.message.reply_text("❌ Login cancelled.", reply_markup=ReplyKeyboardRemove())
+                return
             else:
                 await self._handle_code_input(update, user_state, telegram_id)
                 return
@@ -202,9 +209,10 @@ class DriveProvider(ProviderInterface):
             if "code" in qs:
                 code = qs["code"][0]
             
-        flow = user_state.data.get("flow")
+        flow = getattr(self, "_flows", {}).get(telegram_id)
         if not flow:
             await update.message.reply_text("❌ Login session expired. Please try logging in again.")
+            from telegram import ReplyKeyboardRemove
             user_state.reset()
             return
             
@@ -234,8 +242,11 @@ class DriveProvider(ProviderInterface):
             logger.info(f"User {telegram_id} successfully linked Google Drive as {email_address}")
         except Exception as e:
             logger.error(f"Failed to fetch token for {telegram_id}: {e}", exc_info=True)
-            await update.message.reply_text("❌ Invalid code or authorization failed. Please try again.")
+            from telegram import ReplyKeyboardRemove
+            await update.message.reply_text("❌ Invalid code or authorization failed. Please try again.", reply_markup=ReplyKeyboardRemove())
         finally:
+            if hasattr(self, "_flows") and telegram_id in self._flows:
+                del self._flows[telegram_id]
             user_state.reset()
 
     async def do_logout(self, update: Any, ctx: Any) -> None:

@@ -92,6 +92,8 @@ def _initialize_dependencies(app):
     from shared.managers.TicketManager import TicketManager
     from shared.database.DatabaseConnectionManager import get_db_manager
     app.bot_data['ticket_manager'] = TicketManager(get_db_manager(str(SERVER_DB_PATH)))
+    if 'provider' in app.bot_data:
+        app.bot_data['provider'].credential_repo = app.bot_data['credential_repo']
     logger.info("[BOT] All repositories injected for rclone.db")
     
     from shared.core.ComponentInitializer import init_shared_components
@@ -338,6 +340,9 @@ def main():
     ProviderFactory.register_provider("rclone", rclone_provider)
     app.bot_data['provider'] = rclone_provider
     app.bot_data['provider_name'] = "rclone"
+    
+    # Needs to be assigned after dependencies are initialized
+    # So we'll assign it in _initialize_dependencies or here after _initialize_dependencies
 
     from shared.managers.TransferManager import TransferServiceProvider, set_service_provider
     class RcloneServiceProvider(TransferServiceProvider):

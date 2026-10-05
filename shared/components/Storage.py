@@ -10,6 +10,16 @@ async def get_all_user_accounts(telegram_id, ctx: ContextTypes.DEFAULT_TYPE):
     """Get all Google accounts for a user"""
     try:
         credential_repo = ctx.bot_data.get('credential_repo')
+        
+        if ctx.bot_data.get('provider_name') == 'rclone':
+            from bots.rclone.services.ConfigHelper import user_config
+            from bots.rclone.services.RcloneService import list_remotes
+            async with user_config(credential_repo, str(telegram_id)) as config_path:
+                if config_path:
+                    remotes = await list_remotes(config_path)
+                    return remotes
+            return []
+            
         all_creds_dict = await credential_repo.get(telegram_id=str(telegram_id)) if credential_repo else None
         if not all_creds_dict:
             return []
@@ -40,7 +50,13 @@ async def get_storage_for_account(provider, telegram_id, account_email):
         storage = await provider.get_storage_info(service)
         used = int(float(storage["storageQuota"]["usage"])) / (1024 ** 3)
         limit = int(float(storage["storageQuota"]["limit"])) / (1024 ** 3)
-        free = limit - used
+        
+        if limit > 0:
+            free = limit - used
+        else:
+            free_str = storage["storageQuota"].get("free", "0")
+            free = int(float(free_str)) / (1024 ** 3) if free_str else 0
+            
         trash = int(float(storage["storageQuota"].get("usageInDriveTrash", 0))) / (1024 ** 3)
         used_percent = (used / limit) * 100 if limit > 0 else 0
         free_percent = (free / limit) * 100 if limit > 0 else 0
@@ -137,14 +153,20 @@ async def handle_storage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             account_label = account['email'][0].upper() + account['email'][1:] if account['email'] != 'default' else 'Default Account'
             text += f"<b>Account:</b> {account_label}\n\n"
 
-            # Progress bar — green filled squares + white empty squares
-            filled = round(account['used_percent'] / 10)  # 10 blocks total
-            bar = "🟢" * filled + "⚪" * (10 - filled)
-            text += f"{bar} {account['used_percent']:.0f}%\n\n"
-
-            text += f"<b>Used:</b> {format_size(account['used'])} of {format_size(account['limit'])}\n"
-            text += f"<b>Free:</b> {format_size(account['free'])} ({account['free_percent']:.0f}%)\n"
-            text += f"<b>Trash:</b> {format_size(account['trash'])}\n"
+            if account['limit'] > 0:
+                # Progress bar — green filled squares + white empty squares
+                filled = round(account['used_percent'] / 10)  # 10 blocks total
+                bar = "🟢" * filled + "⚪" * (10 - filled)
+                text += f"{bar} {account['used_percent']:.0f}%\n\n"
+                
+                text += f"<b>Used:</b> {format_size(account['used'])} of {format_size(account['limit'])}\n"
+                text += f"<b>Free:</b> {format_size(account['free'])} ({account['free_percent']:.0f}%)\n"
+                text += f"<b>Trash:</b> {format_size(account['trash'])}\n"
+            else:
+                text += f"<b>Used:</b> {format_size(account['used'])}\n"
+                text += f"<b>Free:</b> {format_size(account['free']) if account['free'] > 0 else 'Unknown'}\n"
+                text += f"<b>Trash:</b> {format_size(account['trash']) if account['trash'] > 0 else 'Unknown'}\n"
+                
             text += "\n"
 
         buttons = [

@@ -100,11 +100,11 @@ def emails_profile(user_info, username, telegram_id, role, emails, primary_email
         default_folder_name = "Default"
 
     # Handle provider-specific status strings
-    if primary_email == "Rclone_Configured":
-        status_str = "Configured"
+    if primary_email.startswith("Configured ("):
+        status_str = primary_email
         account_line = "\n"
         upload_location_line = ""
-    elif primary_email == "Rclone_Not_Configured":
+    elif primary_email == "Not Configured":
         status_str = "Not Configured"
         account_line = "\n"
         upload_location_line = ""
@@ -164,12 +164,16 @@ async def handle_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 # Get credentials info using credential_repo
                 cred = await ctx.bot_data['credential_repo'].get(telegram_id=telegram_id)
                 if cred:
-                    if 'email_address' in cred:
-                        primary_email = {'email': cred['email_address']}
+                    if 'email_address' in cred and cred['email_address']:
+                        em = cred['email_address']
+                        em = em[0].upper() + em[1:] if len(em) > 0 else em
+                        primary_email = {'email': em}
                     elif ctx.bot_data.get('provider_name') == 'rclone':
-                        primary_email = {'email': 'Rclone_Configured'}
+                        from shared.components.Storage import get_all_user_accounts
+                        accounts = await get_all_user_accounts(telegram_id, ctx)
+                        primary_email = {'email': f'Configured ({len(accounts)} remotes)'}
                 elif ctx.bot_data.get('provider_name') == 'rclone':
-                    primary_email = {'email': 'Rclone_Not_Configured'}
+                    primary_email = {'email': 'Not Configured'}
                 
                 parallel_uploads = await ctx.bot_data['credential_repo'].get_parallel_uploads(telegram_id=telegram_id)
                 default_folder_id = await ctx.bot_data['credential_repo'].get_default_location(telegram_id=telegram_id)

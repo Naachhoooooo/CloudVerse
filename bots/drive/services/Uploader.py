@@ -211,21 +211,6 @@ class UploadManager:
     async def _determine_upload_destination(self, telegram_id: int, ctx: Optional[Any] = None) -> str:
         """Determine the upload destination based on file manager context or default settings."""
         try:
-            # Check if file manager is currently open and user is browsing
-            if ctx and hasattr(ctx, 'user_data') and ctx.user_data:
-                user_state = ctx.user_data.get('state')
-                if user_state and getattr(user_state, 'is_state', lambda x: False)(UserStateEnum.FILE_MANAGER):
-                    # Get current account and folder from file manager context
-                    current_account = ctx.user_data.get('current_account', 'default_account')
-                    account_data = ctx.user_data.get('account_data', {})
-                    
-                    if current_account in account_data:
-                        current_folder = account_data[current_account].get('current_folder', 'root')
-                        if current_folder and current_folder != 'root':
-                            logger.info(f"Using file manager current folder for upload: {current_folder}")
-                            return current_folder
-            
-            # File manager not open or at root - use default location or CloudVerse Transfers
             # Using DriveCredentialsRepository locally
             from bots.drive.config import BOT_DB_PATH
             from shared.managers.EncryptionManager import get_encryption_manager

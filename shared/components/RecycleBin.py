@@ -26,11 +26,8 @@ async def handle_bin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         if ctx.bot_data.get('provider_name') == 'rclone':
-            msg = "ℹ️ Recycle Bin is disabled for the Rclone bot."
-            if is_command and update.message:
-                await update.message.reply_text(msg)
-            elif not is_command and update.callback_query:
-                await update.callback_query.edit_message_text(msg)
+            if not is_command and update.callback_query:
+                await update.callback_query.answer()
             return
 
         provider = ctx.bot_data["provider"]

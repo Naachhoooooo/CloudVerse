@@ -427,7 +427,8 @@ class MegaProvider(ProviderInterface):
                 await credential_repo.upsert(str(telegram_id), username, email, password)
             
             user_state.reset()
-            await update.message.reply_text(f"✅ Logged in to Mega.nz as <b>{email}</b>.", parse_mode="HTML")
+            email_str = email[0].upper() + email[1:] if email else "Unknown"
+            await update.message.reply_text(f"✅ Logged in to Mega.nz as <b>{email_str}</b>.", parse_mode="HTML")
             logger.info(f"[MEGA][AUTH] User {telegram_id} logged in to Mega (email redacted)")
         except mega.errors.RequestError as e:
             if e.code == -26:

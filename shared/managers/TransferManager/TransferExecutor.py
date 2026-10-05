@@ -181,10 +181,11 @@ class TransferExecutor:
                 import re
                 error_str = re.sub(r"^\[.*?\]\s*", "", str(e))
                 msg = (
-                    "⚠️ <b>Transfer Failed</b>\n\n"
-                    "An issue occurred during the transfer process:\n"
-                    f"<i>\"{error_str}\"</i>\n\n"
-                    "If this issue persists, please use /support to contact our team."
+                    "❌ <b>Transfer Failed</b>\n\n"
+                    "We encountered an issue while processing your transfer request. "
+                    "The process has been safely halted.\n\n"
+                    f"<b>Reason:</b> <code>{error_str}</code>\n\n"
+                    "<i>If this issue persists, please use the /support command to contact our team.</i>"
                 )
                 await update.message.reply_text(msg, parse_mode="HTML")
             if 'db_id' in locals() and db_id and ctx.bot_data.get('transfer_repo'):
@@ -299,10 +300,11 @@ class TransferExecutor:
                 import re
                 error_str = re.sub(r"^\[.*?\]\s*", "", str(e))
                 msg = (
-                    "⚠️ <b>Transfer Failed</b>\n\n"
-                    "An issue occurred during the transfer process:\n"
-                    f"<i>\"{error_str}\"</i>\n\n"
-                    "If this issue persists, please use /support to contact our team."
+                    "❌ <b>Transfer Failed</b>\n\n"
+                    "We encountered an issue while processing your transfer request. "
+                    "The process has been safely halted.\n\n"
+                    f"<b>Reason:</b> <code>{error_str}</code>\n\n"
+                    "<i>If this issue persists, please use the /support command to contact our team.</i>"
                 )
                 await update.message.reply_text(msg, parse_mode="HTML")
             if 'db_id' in locals() and db_id and ctx.bot_data.get('transfer_repo'):

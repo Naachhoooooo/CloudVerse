@@ -143,6 +143,7 @@ async def list_files(service, folder_id="root", page_token=None, page_size=10):
             q=query,
             pageToken=page_token,
             pageSize=page_size,
+            orderBy="folder,name",
             fields="nextPageToken, files(id,name,mimeType)"
         ).execute()
 
@@ -151,7 +152,7 @@ async def list_files(service, folder_id="root", page_token=None, page_size=10):
     return res.get("files", []), res.get("nextPageToken")
 
 
-async def list_trashed_files(service, page_token=None, page_size=10):
+async def list_trashed_files(service, page_token=None, page_size=1000):
     query = "trashed=true"
     
     def _execute_list():

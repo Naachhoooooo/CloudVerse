@@ -61,17 +61,6 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         elif m and m.from_user:
             telegram_id = m.from_user.id
 
-        if ctx.bot_data.get('provider_name') == 'rclone':
-            msg = "ℹ️ FileManager is disabled for the Rclone bot. Use /copy to manage transfers."
-            if q:
-                await q.edit_message_text(msg)
-            elif m:
-                await m.reply_text(msg)
-            return
-            try:
-                await q.answer()
-            except Exception:
-                pass
         elif m and m.from_user:
             telegram_id = m.from_user.id
         else:
@@ -87,6 +76,7 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         if (m and m.text and m.text.startswith("/filemanager")) or (q and q.data == "FILE_MGR"):
             account_data["current_folder"] = "root"
             account_data["folder_stack"] = []
+            ctx.user_data.pop("in_def_location", None)
         if "folder_pages" not in account_data or account_data["folder_pages"] is None:
             account_data["folder_pages"] = {}
         current_folder = account_data["current_folder"]
@@ -119,7 +109,7 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
                 if cached_files is not None:
                     files = cached_files
                 else:
-                    files, _ = await provider.list_files(service, current_folder, page_size=100)
+                    files, _ = await provider.list_files(service, current_folder, page_size=1000)
                     fm_cache.set(cache_key, files)
             _fetch_locks.pop(cache_key, None)
 
@@ -283,13 +273,14 @@ async def handle_file_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
             if q and hasattr(q, 'edit_message_text'):
                 try:
                     file_meta = await provider.get_file_metadata(service, file_id)
+                    import html
                     file_name = file_meta.get('name', 'Unknown')
-                    display_name = file_name
+                    display_name = html.escape(file_name)
                     file_size = humanize.naturalsize(int(file_meta.get('size', 0)), binary=True) if file_meta.get('size') else 'N/A'
                     text = (
                         f"📄 <b>File Details</b>\n\n"
-                        f"<b>Name:</b> {display_name}\n"
-                        f"<b>Size:</b> {file_size}"
+                        f"<b>Name:</b> <code>{display_name}</code>\n"
+                        f"<b>Size:</b> <code>{file_size}</code>"
                     )
                 except Exception as meta_err:
                     logger.warning(f"[BOT] get_file_metadata failed for {file_id}: {meta_err}")
@@ -349,6 +340,8 @@ async def handle_folder_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE
             # Store name so the rename prompt can reference it
             ctx.user_data["rename_target_name"] = folder_display_name
 
+            import html
+            folder_display_name = html.escape(folder_display_name)
             if is_root:
                 folder_display_name = f"{folder_display_name} /"
                 # Root: only allow creating sub-folders, no destructive or meta ops
@@ -356,7 +349,7 @@ async def handle_folder_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE
                     [InlineKeyboardButton("+ New Folder", callback_data=f"new_folder:{shorten_id(ctx, folder_id)}")],
                     [InlineKeyboardButton("Back to Folder", callback_data="back_to_folder")]
                 ]
-                header = f"🗁 <b>{folder_display_name}</b> — Folder Toolkit"
+                header = f"🗁 <b><code>{folder_display_name}</code></b> — Folder Toolkit"
                 if q and hasattr(q, 'edit_message_text'):
                     await q.edit_message_text(
                         header,
@@ -390,7 +383,7 @@ async def handle_folder_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE
                     [InlineKeyboardButton("Back", callback_data="back_to_folder")]
                 ]
             if q and hasattr(q, 'edit_message_text'):
-                header = f"🗁 <b>{folder_display_name}</b> — Folder Toolkit"
+                header = f"🗁 <b><code>{folder_display_name}</code></b> — Folder Toolkit"
                 await q.edit_message_text(header, reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML')
     except Exception as e:
         logger.error(f"Error handling folder selection: {e}", exc_info=True)
@@ -428,13 +421,16 @@ async def handle_file_operation(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 file_name = file_meta.get('name', 'this file')
             except Exception:
                 file_name = 'this file'
+            
+            import html
+            safe_name = html.escape(file_name)
             buttons = [
                 [InlineKeyboardButton("🗑️ Yes, Delete", callback_data=f"confirm_delete_file:{shorten_id(ctx, file_id)}")],
                 [InlineKeyboardButton("❌ Cancel", callback_data=f"file:{shorten_id(ctx, file_id)}")]
             ]
             if q and hasattr(q, 'edit_message_text'):
                 await q.edit_message_text(
-                    f"⚠️ Are you sure you want to delete:\n\n<b>{file_name}</b>\n\nIt will move to the Recycle Bin.",
+                    f"⚠️ Are you sure you want to delete:\n\n<b><code>{safe_name}</code></b>\n\nIt will move to the Recycle Bin.",
                     reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML'
                 )
         elif isinstance(data, str) and data.startswith("confirm_delete_file:"):
@@ -526,9 +522,10 @@ async def handle_folder_operation(update: Update, ctx: ContextTypes.DEFAULT_TYPE
         elif isinstance(data, str) and data.startswith("delete_folder:"):
             folder_id = extract_id(ctx, data, "delete_folder:")
             folder_name = "this folder"
+            import html
             try:
                 meta = await provider.get_file_metadata(service, folder_id)
-                folder_name = f"<b>{meta.get('name', 'this folder')}</b>"
+                folder_name = f"<b><code>{html.escape(meta.get('name', 'this folder'))}</code></b>"
             except Exception:
                 pass
             buttons = [
@@ -537,16 +534,17 @@ async def handle_folder_operation(update: Update, ctx: ContextTypes.DEFAULT_TYPE
             ]
             if q and hasattr(q, 'edit_message_text'):
                 await q.edit_message_text(
-                    f"⚠️ Are you sure you want to delete:\n\n<b>{folder_name}</b>\n\nIt will move to the Recycle Bin.",
+                    f"⚠️ Are you sure you want to delete:\n\n{folder_name}\n\nIt will move to the Recycle Bin.",
                     reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML'
                 )
         elif isinstance(data, str) and data.startswith("confirm_delete_folder:"):
             folder_id = extract_id(ctx, data, "confirm_delete_folder:")
             deleted_name = "the folder"
+            import html
             try:
                 meta = await provider.get_file_metadata(service, folder_id)
                 name = meta.get('name', 'the folder')
-                deleted_name = f"<b>{name}</b>"
+                deleted_name = f"<b><code>{html.escape(name)}</code></b>"
             except Exception:
                 pass
             account_data = ctx.user_data.get("account_data", {}).get(current_account, {})
