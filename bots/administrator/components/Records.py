@@ -185,7 +185,7 @@ async def _render_delete_records(q, m, ctx):
     
     buttons = []
     active_bot = get_active_bot(ctx).capitalize()
-    buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data="toggle_bot_filter")])
+    buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data="toggle_bot_filter:records")])
     
     for user_id, label in page_users:
         buttons.append([InlineKeyboardButton(label, callback_data=f"delete_user_confirm:{user_id}")])

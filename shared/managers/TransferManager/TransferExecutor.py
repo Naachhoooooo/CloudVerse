@@ -27,9 +27,17 @@ class TransferExecutor:
         if not telegram_id:
             return False
         
-        file = update.message.document
+        msg = update.message
+        file = msg.document or msg.video or msg.audio or (msg.photo[-1] if msg.photo else None)
         if not file:
             return False
+            
+        resolved_file_name = getattr(file, 'file_name', None)
+        if not resolved_file_name:
+            if msg.photo: resolved_file_name = f"photo_{int(time())}.jpg"
+            elif msg.audio: resolved_file_name = f"audio_{int(time())}.mp3"
+            elif msg.video: resolved_file_name = f"video_{int(time())}.mp4"
+            else: resolved_file_name = "Unknown_File"
             
         file_size_bytes = getattr(file, 'file_size', 0) or 0
         MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024  # 4GB limit for Telethon
@@ -42,7 +50,7 @@ class TransferExecutor:
                 'type': 'file',
                 'file_info': {
                     'file_id': file.file_id,
-                    'file_name': getattr(file, 'file_name', 'Unknown File'),
+                    'file_name': resolved_file_name,
                     'file_size': getattr(file, 'file_size', None),
                     'mime_type': getattr(file, 'mime_type', None)
                 },
@@ -54,10 +62,9 @@ class TransferExecutor:
         if not await cls._check_quota(update, ctx, telegram_id):
             return False
         
-        file = update.message.document
         file_size_bytes = getattr(file, 'file_size', None)
         transfer_id = f"file_{telegram_id}_{int(time())}"
-        file_name = getattr(file, 'file_name', 'Unknown File')
+        file_name = resolved_file_name
         username = update.message.from_user.username or "Unknown"
         provider = ctx.bot_data.get('provider_name', 'drive')
         
@@ -97,11 +104,11 @@ class TransferExecutor:
             
             # Phase 1: Download from Telegram using Telethon (or native for small files)
             import html
+            display_name = file_name if len(file_name) <= 45 else file_name[:42] + "..."
             download_init_text = (
-                "<b>⌛︎ Downloading Starting...</b>\n\n"
-                "<b>File Info</b>\n"
-                f"<b>File:</b> {html.escape(file_name)}\n"
-                f"<b>Size:</b> {file_size_str}"
+                "⚡️ <b>Preparing Download...</b>\n\n"
+                f"<b>File:</b> <code>{html.escape(display_name)}</code>\n"
+                f"<b>Size:</b> <code>{file_size_str}</code>"
             )
             await preparing_message.edit_text(download_init_text, parse_mode="HTML")
             
@@ -135,27 +142,14 @@ class TransferExecutor:
             provider = ctx.bot_data.get('provider_name', 'drive')
             provider_display = 'Google Drive' if provider == 'drive' else 'Mega' if provider == 'mega' else 'Cloud Storage'
             
-            parent_id = None
-            if ctx and ctx.user_data:
-                state = ctx.user_data.get('state')
-                from shared.core.UserState import UserStateEnum
-                if state and state.is_state(UserStateEnum.FILE_MANAGER):
-                    current_account = ctx.user_data.get("current_account", "default_account")
-                    account_data = ctx.user_data.get("account_data", {}).get(current_account, {})
-                    last_accessed = account_data.get("last_accessed", 0)
-                    if time() - last_accessed < 86400: # 1 day timeout
-                        if account_data.get("current_folder") and account_data["current_folder"] != "root":
-                            parent_id = account_data["current_folder"]
-            
-            if not parent_id:
-                parent_id = await db.get_default_location(str(telegram_id))
+            parent_id = await db.get_default_location(str(telegram_id))
 
             import html
+            display_name = file_name if len(file_name) <= 45 else file_name[:42] + "..."
             upload_init_text = (
-                "<b>⌛︎ Uploading Starting...</b>\n\n"
-                "<b>File Info</b>\n"
-                f"<b>File:</b> {html.escape(file_name)}\n"
-                f"<b>Size:</b> {file_size_str}"
+                "☁️ <b>Preparing Upload...</b>\n\n"
+                f"<b>File:</b> <code>{html.escape(display_name)}</code>\n"
+                f"<b>Size:</b> <code>{file_size_str}</code>"
             )
             await preparing_message.edit_text(upload_init_text, parse_mode="HTML")
 
@@ -184,8 +178,15 @@ class TransferExecutor:
                 await update.message.reply_text(f"❌ Transfer cancelled by administrator.")
             else:
                 logger.error(f"File transfer failed: {e}")
-                await update.message.reply_text(f"❌ Upload failed: {str(e)}")
-                
+                import re
+                error_str = re.sub(r"^\[.*?\]\s*", "", str(e))
+                msg = (
+                    "⚠️ <b>Transfer Failed</b>\n\n"
+                    "An issue occurred during the transfer process:\n"
+                    f"<i>\"{error_str}\"</i>\n\n"
+                    "If this issue persists, please use /support to contact our team."
+                )
+                await update.message.reply_text(msg, parse_mode="HTML")
             if 'db_id' in locals() and db_id and ctx.bot_data.get('transfer_repo'):
                 await ctx.bot_data['transfer_repo'].update_status(db_id, 'failed', error_message=str(e))
                 
@@ -267,21 +268,8 @@ class TransferExecutor:
             provider = ctx.bot_data.get('provider_name', 'drive')
             provider_display = 'Google Drive' if provider == 'drive' else 'Mega.nz' if provider == 'mega' else 'Cloud Storage'
 
-            parent_id = None
-            if ctx and ctx.user_data:
-                state = ctx.user_data.get('state')
-                from shared.core.UserState import UserStateEnum
-                if state and state.is_state(UserStateEnum.FILE_MANAGER):
-                    current_account = ctx.user_data.get("current_account", "default_account")
-                    account_data = ctx.user_data.get("account_data", {}).get(current_account, {})
-                    last_accessed = account_data.get("last_accessed", 0)
-                    if time() - last_accessed < 86400: # 1 day timeout
-                        if account_data.get("current_folder") and account_data["current_folder"] != "root":
-                            parent_id = account_data["current_folder"]
-            
-            if not parent_id:
-                credential_repo = ctx.bot_data.get('credential_repo')
-                parent_id = await credential_repo.get_default_location(telegram_id=str(telegram_id)) if credential_repo else 'root'
+            credential_repo = ctx.bot_data.get('credential_repo')
+            parent_id = await credential_repo.get_default_location(telegram_id=str(telegram_id)) if credential_repo else 'root'
 
             upload_result = await cls._with_retry(
                 cls._execute_cloud_upload,
@@ -308,8 +296,15 @@ class TransferExecutor:
                 await update.message.reply_text(f"❌ Transfer cancelled by administrator.")
             else:
                 logger.error(f"URL transfer failed: {e}")
-                await update.message.reply_text(f"❌ Upload failed: {str(e)}")
-                
+                import re
+                error_str = re.sub(r"^\[.*?\]\s*", "", str(e))
+                msg = (
+                    "⚠️ <b>Transfer Failed</b>\n\n"
+                    "An issue occurred during the transfer process:\n"
+                    f"<i>\"{error_str}\"</i>\n\n"
+                    "If this issue persists, please use /support to contact our team."
+                )
+                await update.message.reply_text(msg, parse_mode="HTML")
             if 'db_id' in locals() and db_id and ctx.bot_data.get('transfer_repo'):
                 await ctx.bot_data['transfer_repo'].update_status(db_id, 'failed', error_message=str(e))
                 

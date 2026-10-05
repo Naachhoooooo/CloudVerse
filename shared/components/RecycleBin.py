@@ -52,29 +52,26 @@ async def handle_bin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         ctx.user_data["bin_page"] = page
 
         item_count = len(files)
-        if paged_files:
-            items_text = "\n".join(
-                f"{emoji_maker(f['mimeType'], f.get('name', ''))} {f['name']}"
-                for f in paged_files
-            )
-        else:
-            items_text = "_Your recycle bin is currently empty._"
-
+        total_bin_bytes = sum(int(f.get("size", 0)) for f in files if f.get("size"))
+        total_bin_size = humanize.naturalsize(total_bin_bytes, binary=True)
         text = (
-            f"<b>🗑 Bin</b> — {item_count} item{'s' if item_count != 1 else ''}\n"
-            f"\n{items_text}"
+            f"<b>🗑 Bin</b> — {item_count} item{'s' if item_count != 1 else ''}\n\n"
+            f"<b>Total Bin Size:</b> {total_bin_size}"
         )
+        if not paged_files:
+            text += "\n\n<i>Your recycle bin is currently empty.</i>"
 
         buttons = []
-        for f in paged_files:
-            emoji = emoji_maker(f["mimeType"], f.get("name", ""))
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        f"{emoji} {f['name']}", callback_data=f"bin_item:{f['id']}"
-                    )
-                ]
-            )
+        if paged_files:
+            for f in paged_files:
+                emoji = emoji_maker(f["mimeType"], f.get("name", ""))
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            f"{emoji} {f['name']}", callback_data=f"bin_item:{f['id']}"
+                        )
+                    ]
+                )
 
         if total_pages > 1:
             if pagination_buttons:
@@ -273,8 +270,10 @@ async def handle_file_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         [InlineKeyboardButton("Back", callback_data="back_to_bin")],
                     ]
                     if q and hasattr(q, "edit_message_text"):
+                        name = file['name']
+                        display_name = name
                         await q.edit_message_text(
-                            f"<b>📄 {file['name']}</b>\n\nChoose an action:",
+                            f"📄 <b>File Details</b>\n\n<b>Name:</b> {display_name}\n\nChoose an action:",
                             reply_markup=InlineKeyboardMarkup(buttons),
                             parse_mode="HTML"
                         )
@@ -288,8 +287,10 @@ async def handle_file_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 ):
                     await provider.restore_file(service, file.get("id"))
                     if q and hasattr(q, "edit_message_text"):
+                        name = file.get('name', 'file')
+                        display_name = name if len(name) <= 45 else name[:42] + "..."
                         await q.edit_message_text(
-                            f"✅ File: {file.get('name')} successfully restored",
+                            f"✅ <b>{display_name}</b> successfully restored",
                             reply_markup=InlineKeyboardMarkup(
                                 [
                                     [
@@ -310,10 +311,11 @@ async def handle_file_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 ):
                     if q and hasattr(q, "edit_message_text"):
                         await q.edit_message_text(
-                            f"Are you sure you want to delete this file?\n"
-                            f"Name: {file.get('name')}\n\n"
+                            f"⚠️ Are you sure you want to permanently delete:\n\n"
+                            f"<b>{file.get('name')}</b>\n\n"
                             "This action cannot be undone.\n"
-                            'Type "DELETE" to confirm:'
+                            'Type "DELETE" to confirm:',
+                            parse_mode='HTML'
                         )
                     ctx.user_data["expecting_delete_confirmation"] = file
 
@@ -380,8 +382,10 @@ async def handle_folder_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE
                         [InlineKeyboardButton("Back", callback_data="back_to_bin")],
                     ]
                     if q and hasattr(q, "edit_message_text"):
+                        name = file['name']
+                        display_name = name if len(name) <= 45 else name[:42] + "..."
                         await q.edit_message_text(
-                            f"<b>📁 {file['name']}</b>\n\nChoose an action:",
+                            f"📁 <b>Folder Details</b>\n\n<b>Name:</b> <code>{display_name}</code>\n\nChoose an action:",
                             reply_markup=InlineKeyboardMarkup(buttons),
                             parse_mode="HTML"
                         )
@@ -395,8 +399,10 @@ async def handle_folder_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE
                 ):
                     await provider.restore_file(service, file.get("id"))
                     if q and hasattr(q, "edit_message_text"):
+                        name = file.get('name', 'folder')
+                        display_name = name if len(name) <= 45 else name[:42] + "..."
                         await q.edit_message_text(
-                            f"✅ Folder: {file.get('name')} successfully restored",
+                            f"✅ <b>{display_name}</b> successfully restored",
                             reply_markup=InlineKeyboardMarkup(
                                 [
                                     [
@@ -417,10 +423,11 @@ async def handle_folder_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE
                 ):
                     if q and hasattr(q, "edit_message_text"):
                         await q.edit_message_text(
-                            f"Are you sure you want to delete this folder?\n"
-                            f"Name: {file.get('name')}\n\n"
+                            f"⚠️ Are you sure you want to permanently delete:\n\n"
+                            f"<b>{file.get('name')}</b>\n\n"
                             "This action cannot be undone.\n"
-                            'Type "DELETE" to confirm:'
+                            'Type "DELETE" to confirm:',
+                            parse_mode='HTML'
                         )
                     ctx.user_data["expecting_delete_confirmation"] = file
 

@@ -11,7 +11,7 @@ import warnings  # noqa: E402
 from telegram.ext import (  # noqa: E402
     ApplicationBuilder, MessageHandler, filters
 )
-from telegram import BotCommand, Update  # noqa: E402
+from telegram import Update  # noqa: E402
 from telegram.ext import ContextTypes  # noqa: E402
 from shared.core.Logger import get_logger, setup_logging  # noqa: E402
 from shared.core.ErrorHandler import handle_errors  # noqa: E402
@@ -30,6 +30,24 @@ if not RCLONE_SUPER_ADMIN_ID:
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Global PTB error handler — logs, notifies maintenance topic, notifies user."""
+    error_str = str(context.error)
+    # These are benign Telegram API responses or transient network errors — not real failures.
+    # Never alert or message the user for these.
+    BENIGN_ERRORS = (
+        "Message is not modified",
+        "Query is too old",
+        "Message can't be deleted",
+        "MESSAGE_ID_INVALID",
+        "httpx.ReadError",
+        "httpx.ConnectError",
+        "httpx.WriteError",
+        "httpx.TimeoutException",
+        "NetworkError",
+    )
+    if any(phrase in error_str for phrase in BENIGN_ERRORS):
+        logger.warning(f"[BOT] Suppressed benign Telegram error: {context.error}")
+        return
+
     logger.error(f"[BOT] Unhandled PTB error: {context.error}", exc_info=context.error)
     try:
         from shared.managers.ServerManager import get_server_manager
@@ -48,20 +66,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"[BOT] Failed to send error reply: {e}")
 
 
-async def set_bot_commands(app):
-    commands = [
-        BotCommand("start", "Start the rclone bot"),
-        BotCommand("config", "Manage your rclone config"),
-        BotCommand("profile", "View account profile"),
-        BotCommand("transfer", "Start a cloud-to-cloud transfer"),
-        BotCommand("remotes", "List configured remotes"),
-        BotCommand("filemanager", "Browse remote files"),
-        BotCommand("storage", "View remote storage details"),
-        BotCommand("settings", "Bot settings"),
-        BotCommand("policy", "Policy"),
-        BotCommand("queue", "View transfer queue status"),
-    ]
-    await app.bot.set_my_commands(commands)
 
 
 
@@ -84,6 +88,10 @@ def _initialize_dependencies(app):
     history_repo = HistoryRepository(str(BOT_DB_PATH))
     app.bot_data['history_repo'] = history_repo
     app.bot_data['account_repo'] = AccountRepository(str(BOT_DB_PATH), history_repo=history_repo)
+    from shared.core.Config import SERVER_DB_PATH
+    from shared.managers.TicketManager import TicketManager
+    from shared.database.DatabaseConnectionManager import get_db_manager
+    app.bot_data['ticket_manager'] = TicketManager(get_db_manager(str(SERVER_DB_PATH)))
     logger.info("[BOT] All repositories injected for rclone.db")
     
     from shared.core.ComponentInitializer import init_shared_components
@@ -104,20 +112,24 @@ from shared.core.AsyncUtils import track_task  # noqa: E402
 @handle_errors
 @access_required
 async def handle_document_or_media(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    from telegram.ext import ApplicationHandlerStop
     
     if update.message.document:
         from shared.core.UserState import UserStateEnum, UserState
         user_state: UserState = ctx.user_data.get("state") if ctx.user_data else None
-        if user_state and user_state.is_state(UserStateEnum.EXPECTING_RCLONE_CONFIG):
+        is_expecting_config = user_state and user_state.is_state(UserStateEnum.EXPECTING_RCLONE_CONFIG)
+        file_name = update.message.document.file_name or ""
+        
+        if is_expecting_config or file_name.endswith(".conf"):
             file_name = update.message.document.file_name
             if not file_name.endswith(".conf"):
                 await update.message.reply_text("Expected a .conf file. Please upload rclone.conf.")
-                return
+                raise ApplicationHandlerStop()
 
             file_size = update.message.document.file_size
             if file_size and file_size > 50 * 1024:
                 await update.message.reply_text("❌ Config file is too large. Maximum size is 50KB.")
-                return
+                raise ApplicationHandlerStop()
 
             file = await update.message.document.get_file()
             file_bytes = await file.download_as_bytearray()
@@ -125,12 +137,12 @@ async def handle_document_or_media(update: Update, ctx: ContextTypes.DEFAULT_TYP
                 conf_content = file_bytes.decode('utf-8')
             except UnicodeDecodeError:
                 await update.message.reply_text("❌ Invalid file encoding. Please upload a valid UTF-8 rclone.conf file.")
-                return
+                raise ApplicationHandlerStop()
 
             import re
             if not re.search(r'\[.+\]', conf_content) or 'type' not in conf_content.lower():
                 await update.message.reply_text("❌ Invalid config format. Does not appear to be a valid rclone config.")
-                return
+                raise ApplicationHandlerStop()
             
             telegram_id = str(update.effective_user.id)
             username = update.effective_user.username
@@ -139,20 +151,21 @@ async def handle_document_or_media(update: Update, ctx: ContextTypes.DEFAULT_TYP
                 try:
                     await credential_repo.upsert(telegram_id, username, conf_content)
                     await update.message.reply_text("✅ rclone configuration saved successfully.")
-                    user_state.set_state(UserStateEnum.MENU)
+                    if user_state:
+                        user_state.set_state(UserStateEnum.MENU)
                 except Exception as e:
                     logger.error(f"Failed to save rclone config: {e}")
                     await update.message.reply_text("❌ Error: could not save config.")
             else:
                 await update.message.reply_text("❌ Database error: could not save config.")
-            return
+            raise ApplicationHandlerStop()
         else:
             await update.message.reply_text("ℹ️ The rclone bot only supports cloud-to-cloud transfers via /copy. To upload files, use the Drive or Mega bot.")
-            return
+            raise ApplicationHandlerStop()
 
     if update.message.video or update.message.audio or update.message.photo:
         await update.message.reply_text("ℹ️ The rclone bot only supports cloud-to-cloud transfers via /copy. To upload media, use the Drive or Mega bot.")
-        return
+        raise ApplicationHandlerStop()
 
 def _register_handlers(app):
     from shared.core.ComponentInitializer import register_shared_handlers
@@ -252,8 +265,6 @@ def _setup_lifecycle(app):
     _SESSION_TS = _dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     async def on_startup(application):
-        logger.info("Setting rclone bot commands...")
-        await set_bot_commands(application)
 
         import os
         await application.bot_data['account_repo'].sync_super_admins(
@@ -276,19 +287,6 @@ def _setup_lifecycle(app):
         await application.bot_data['history_repo'].safe_create(
             action_taken="BOT_STARTUP", status="SUCCESS", event_details="rclone bot started successfully."
         )
-        # Archive previous session logs → backup topic
-        from shared.managers.LogManager import archive_previous_session_logs
-        from bots.rclone.config import TeamCloudverse_GROUP_CHAT_ID, BACKUP_TOPIC_ID
-        try:
-            await archive_previous_session_logs(
-                bot=application.bot,
-                chat_id=int(TeamCloudverse_GROUP_CHAT_ID),
-                topic_id=int(BACKUP_TOPIC_ID),
-                provider_name="rclone",
-                session_timestamp=_SESSION_TS,
-            )
-        except Exception as _e:
-            logger.warning(f"[SYSTEM] Session log archive skipped: {_e}")
 
     app.post_init = on_startup
 

@@ -180,6 +180,7 @@ def server_init_db(db_path: str) -> None:
                 ticket_code TEXT PRIMARY KEY,
                 telegram_id TEXT,
                 topic_id INTEGER,
+                bot_source TEXT,
                 status TEXT DEFAULT 'OPEN',
                 note TEXT,
                 admin_details TEXT,

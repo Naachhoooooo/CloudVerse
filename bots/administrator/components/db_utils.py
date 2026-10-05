@@ -64,8 +64,7 @@ def cycle_active_bot(ctx) -> str:
     return nxt
 
 def get_filter_button_text(active_bot: str) -> str:
-    bots = ['All', 'Drive', 'Mega', 'Rclone']
-    return " / ".join(f"[{b}]" if b.lower() == active_bot.lower() else b for b in bots)
+    return f"🗃️ Database: {active_bot.capitalize()}"
 
 async def get_users_by_role_filtered(role: str, active_bot: str) -> list:
     """Fetches users by role, supporting 'all' to fetch and deduplicate across all databases."""

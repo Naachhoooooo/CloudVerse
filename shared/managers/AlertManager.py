@@ -30,11 +30,13 @@ class AlertManager:
         management_topic_id = config.get('MANAGEMENT_TOPIC_ID')
         alerts_topic_id = config.get('ALERTS_TOPIC_ID')
         bugs_topic_id = config.get('BUGS_TOPIC_ID')
-        return group_id, management_topic_id, alerts_topic_id, bugs_topic_id
+        analytics_topic_id = config.get('ANALYTICS_TOPIC_ID', 2550)
+        return group_id, management_topic_id, alerts_topic_id, bugs_topic_id, analytics_topic_id
 
     async def send_startup_notification(self):
         try:
-            group_chat_id, management_topic_id, alerts_topic_id, bugs_topic_id = self._get_notification_ids()
+            ids = self._get_notification_ids()
+            group_chat_id, management_topic_id = ids[0], ids[1]
             if not group_chat_id or not management_topic_id:
                 logger.warning("Group chat ID or management topic ID not configured for startup notification")
                 return False
@@ -94,7 +96,8 @@ class AlertManager:
         try:
             # Always send the notification, even if it's an intentional shutdown.
                 
-            group_chat_id, management_topic_id, alerts_topic_id, bugs_topic_id = self._get_notification_ids()
+            ids = self._get_notification_ids()
+            group_chat_id, management_topic_id = ids[0], ids[1]
             if not group_chat_id or not management_topic_id:
                 logger.warning("Group chat ID or management topic ID not configured for shutdown notification")
                 return False
@@ -174,7 +177,8 @@ class AlertManager:
             return False
     async def send_warning_notification(self, warning_message: str, warning_type: str = "System Warning", severity: str = "MEDIUM"):
         try:
-            group_chat_id, management_topic_id, alerts_topic_id, bugs_topic_id = self._get_notification_ids()
+            ids = self._get_notification_ids()
+            group_chat_id, alerts_topic_id = ids[0], ids[2]
             if not group_chat_id or not alerts_topic_id:
                 logger.warning("Group chat ID or alerts topic ID not configured for warning notification")
                 return False
@@ -208,7 +212,8 @@ class AlertManager:
 
     async def send_error_notification(self, error_message: str, error_type: str = "Runtime Error", severity: str = "HIGH"):
         try:
-            group_chat_id, management_topic_id, alerts_topic_id, bugs_topic_id = self._get_notification_ids()
+            ids = self._get_notification_ids()
+            group_chat_id, bugs_topic_id = ids[0], ids[3]
             if not group_chat_id or not bugs_topic_id:
                 logger.warning("Group chat ID or bugs topic ID not configured for error notification")
                 return False
@@ -272,7 +277,8 @@ class AlertManager:
 
     async def send_critical_system_alert(self, component: str, issue: str, details: str = ""):
         try:
-            group_chat_id, management_topic_id, alerts_topic_id, bugs_topic_id = self._get_notification_ids()
+            ids = self._get_notification_ids()
+            group_chat_id, bugs_topic_id = ids[0], ids[3]
             if not group_chat_id or not bugs_topic_id:
                 logger.warning("Group chat ID or bugs topic ID not configured")
                 return False
@@ -307,20 +313,45 @@ class AlertManager:
             logger.error(f"Error sending critical system alert: {e}")
             return False
 
-    async def send_daily_analytics_notification(self, top_users: list):
+    async def send_daily_analytics_notification(self, top_users: list, advanced_metrics: dict = None):
         try:
-            group_chat_id, management_topic_id, alerts_topic_id, bugs_topic_id = self._get_notification_ids()
-            if not group_chat_id or not alerts_topic_id:
-                logger.warning("Group chat ID or alerts topic ID not configured for analytics notification")
+            ids = self._get_notification_ids()
+            group_chat_id, analytics_topic_id = ids[0], ids[4]
+            if not group_chat_id or not analytics_topic_id:
+                logger.warning("Group chat ID or analytics topic ID not configured")
                 return False
 
-            report_time = datetime.utcnow().strftime('%Y-%m-%d UTC')
+            report_time = datetime.now().strftime('%Y-%m-%d')
             
             message_text = (
-                f"📊 <b>DAILY TOP USERS</b> | {html.escape(self.bot_name)}\n"
-                f"<b>Date:</b> {report_time}\n\n"
+                f"📊 <b>DAILY ANALYTICS REPORT</b> | {html.escape(self.bot_name)}\n"
+                f"<b>Date:</b> {report_time} (IST)\n\n"
             )
 
+            if advanced_metrics:
+                u = advanced_metrics.get('users', {})
+                t = advanced_metrics.get('transfers', {})
+                f = advanced_metrics.get('failures', {})
+                
+                size_fmt = lambda b: f"{b/1024**3:.2f} GB" if (b or 0) > 1024**3 else f"{(b or 0)/1024**2:.2f} MB"
+                
+                message_text += (
+                    f"👥 <b>USER GROWTH</b>\n"
+                    f"• New Today: +{u.get('daily_new') or 0}\n"
+                    f"• This Week: +{u.get('weekly_new') or 0}\n"
+                    f"• This Month: +{u.get('monthly_new') or 0}\n"
+                    f"• This Year: +{u.get('yearly_new') or 0}\n"
+                    f"• Lifetime Users: {u.get('total_users') or 0}\n\n"
+                    f"🚀 <b>TRANSFER METRICS</b>\n"
+                    f"• Today: {size_fmt(t.get('total_size_today'))} ({t.get('total_count_today') or 0} files)\n"
+                    f"• This Week: {size_fmt(t.get('total_size_week'))}\n"
+                    f"• This Month: {size_fmt(t.get('total_size_month'))}\n"
+                    f"• This Year: {size_fmt(t.get('total_size_year'))}\n"
+                    f"• Lifetime: {size_fmt(t.get('total_size_lifetime'))}\n"
+                    f"• Failures (24h): {f.get('failure_count') or 0}\n\n"
+                )
+
+            message_text += "🏆 <b>DAILY TOP USERS</b>\n"
             if not top_users:
                 message_text += "<i>No transfers recorded today.</i>"
             else:
@@ -341,15 +372,134 @@ class AlertManager:
             await self.app.bot.send_message(
                 chat_id=int(group_chat_id),
                 text=message_text,
-                message_thread_id=int(alerts_topic_id),
+                message_thread_id=int(analytics_topic_id),
                 parse_mode="HTML"
             )
             
-            logger.info("Daily analytics notification sent to alerts topic")
+            logger.info("Daily analytics notification sent to analytics topic")
             return True
             
         except Exception as e:
             logger.error(f"Error sending daily analytics notification: {e}")
+            return False
+
+    async def send_monthly_analytics_notification(self, monthly_data: dict):
+        try:
+            ids = self._get_notification_ids()
+            group_chat_id, analytics_topic_id = ids[0], ids[4]
+            if not group_chat_id or not analytics_topic_id:
+                logger.warning("Group chat ID or analytics topic ID not configured")
+                return False
+
+            # Since it's run at midnight on the 1st of the new month, 
+            # we subtract 1 day to get the correct name of the month that just ended.
+            from datetime import timedelta
+            report_time = (datetime.now() - timedelta(days=1)).strftime('%B %Y') 
+            
+            message_text = (
+                f"🌟 <b>ENTERPRISE MONTHLY REPORT</b> | {html.escape(self.bot_name)}\n"
+                f"<b>Month:</b> {report_time}\n\n"
+            )
+
+            metrics = monthly_data.get('metrics', {})
+            active = monthly_data.get('active_users', 0)
+            failures = monthly_data.get('failures', 0)
+            top_users = monthly_data.get('top_users', [])
+            
+            size_fmt = lambda b: f"{b/1024**3:.2f} GB" if (b or 0) > 1024**3 else f"{(b or 0)/1024**2:.2f} MB"
+            
+            message_text += (
+                f"📈 <b>MONTHLY OVERVIEW</b>\n"
+                f"• Active Transfer Users: {active}\n"
+                f"• Total Data Transferred: {size_fmt(metrics.get('total_size'))}\n"
+                f"• Total Files Processed: {metrics.get('total_count') or 0}\n"
+                f"• Average Per User: {size_fmt(metrics.get('avg_size'))}\n"
+                f"• Failures: {failures}\n\n"
+            )
+
+            message_text += "🏆 <b>TOP USERS OF THE MONTH</b>\n"
+            if not top_users:
+                message_text += "<i>No transfers recorded this month.</i>"
+            else:
+                for i, user in enumerate(top_users, 1):
+                    tid = user['telegram_id']
+                    uname = f"@{user['username']}" if user.get('username') else f"ID: {tid}"
+                    role = user.get('role', 'unknown').capitalize()
+                    size_bytes = user.get('transferred_this_month', 0)
+                    count = user.get('transfer_count_this_month', 0)
+                    message_text += f"{i}. <b>{html.escape(uname)}</b> <i>({html.escape(role)})</i> — {size_fmt(size_bytes)} ({count} files)\n"
+
+            await self.app.bot.send_message(
+                chat_id=int(group_chat_id),
+                text=message_text,
+                message_thread_id=int(analytics_topic_id),
+                parse_mode="HTML"
+            )
+            
+            logger.info("Monthly enterprise analytics notification sent to analytics topic")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sending monthly analytics notification: {e}")
+            return False
+
+    async def send_yearly_analytics_notification(self, yearly_data: dict):
+        try:
+            ids = self._get_notification_ids()
+            group_chat_id, analytics_topic_id = ids[0], ids[4]
+            if not group_chat_id or not analytics_topic_id:
+                logger.warning("Group chat ID or analytics topic ID not configured")
+                return False
+
+            # Subtract 1 day to get the year that just ended
+            from datetime import timedelta
+            report_time = (datetime.now() - timedelta(days=1)).strftime('%Y')
+            
+            message_text = (
+                f"🎆 <b>YEARLY ENTERPRISE REPORT</b> | {html.escape(self.bot_name)}\n"
+                f"<b>Year:</b> {report_time}\n\n"
+            )
+
+            metrics = yearly_data.get('metrics', {})
+            active = yearly_data.get('active_users', 0)
+            failures = yearly_data.get('failures', 0)
+            top_users = yearly_data.get('top_users', [])
+            
+            size_fmt = lambda b: f"{b/1024**3:.2f} GB" if (b or 0) > 1024**3 else f"{(b or 0)/1024**2:.2f} MB"
+            
+            message_text += (
+                f"📊 <b>YEAR IN REVIEW</b>\n"
+                f"• Active Transfer Users: {active}\n"
+                f"• Total Data Transferred: {size_fmt(metrics.get('total_size'))}\n"
+                f"• Total Files Processed: {metrics.get('total_count') or 0}\n"
+                f"• Average Per User: {size_fmt(metrics.get('avg_size'))}\n"
+                f"• System Failures: {failures}\n\n"
+            )
+
+            message_text += "🏆 <b>TOP USERS OF THE YEAR</b>\n"
+            if not top_users:
+                message_text += "<i>No transfers recorded this year.</i>"
+            else:
+                for i, user in enumerate(top_users, 1):
+                    tid = user['telegram_id']
+                    uname = f"@{user['username']}" if user.get('username') else f"ID: {tid}"
+                    role = user.get('role', 'unknown').capitalize()
+                    size_bytes = user.get('transferred_this_year', 0)
+                    count = user.get('transfer_count_this_year', 0)
+                    message_text += f"{i}. <b>{html.escape(uname)}</b> <i>({html.escape(role)})</i> — {size_fmt(size_bytes)} ({count} files)\n"
+
+            await self.app.bot.send_message(
+                chat_id=int(group_chat_id),
+                text=message_text,
+                message_thread_id=int(analytics_topic_id),
+                parse_mode="HTML"
+            )
+            
+            logger.info("Yearly enterprise analytics notification sent to analytics topic")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sending yearly analytics notification: {e}")
             return False
 
 

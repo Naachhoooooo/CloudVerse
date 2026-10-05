@@ -300,15 +300,16 @@ class RcloneProvider(ProviderInterface):
         else:
             await q.edit_message_text("Logout cancelled.")
 
-    async def _show_logout_prompt(self, q: Any) -> None:
+    async def _show_logout_prompt(self, msg_or_query: Any) -> None:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        await q.edit_message_text(
-            "⚠️ Are you sure you want to remove your rclone configuration?",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Yes", callback_data="confirm_logout:yes"),
-                 InlineKeyboardButton("❌ No", callback_data="confirm_logout:no")]
-            ])
-        )
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Yes", callback_data="confirm_logout:yes"),
+             InlineKeyboardButton("❌ No", callback_data="confirm_logout:no")]
+        ])
+        if hasattr(msg_or_query, 'edit_message_text'):
+            await msg_or_query.edit_message_text("⚠️ Are you sure you want to remove your rclone configuration?", reply_markup=reply_markup)
+        else:
+            await msg_or_query.reply_text("⚠️ Are you sure you want to remove your rclone configuration?", reply_markup=reply_markup)
 
     async def do_logout(self, update: Any, ctx: Any) -> None:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -316,14 +317,16 @@ class RcloneProvider(ProviderInterface):
         if ctx.user_data is None:
             ctx.user_data = {}
 
-        if not (update.callback_query and update.callback_query.from_user):
+        q = update.callback_query
+        m = update.message
+        
+        if not q and not m:
             return
 
-        q = update.callback_query
-        telegram_id = q.from_user.id
+        telegram_id = q.from_user.id if q else m.from_user.id
         credential_repo = ctx.bot_data.get("credential_repo")
 
-        if q.data and q.data.startswith("confirm_logout:"):
+        if q and q.data and q.data.startswith("confirm_logout:"):
             await q.answer()
             action = q.data.split(":")[1]
             await self._process_logout_confirmation(q, action, telegram_id, credential_repo)
@@ -338,10 +341,12 @@ class RcloneProvider(ProviderInterface):
                 logger.warning(f"[RCLONE][AUTH] Error checking config during logout for {telegram_id}: {e}")
 
         if not has_config:
-            await q.edit_message_text(
-                "ℹ️ No rclone configuration found.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="SETTINGS")]])
-            )
+            msg_text = "ℹ️ No rclone configuration found."
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="SETTINGS")]])
+            if q:
+                await q.edit_message_text(msg_text, reply_markup=reply_markup)
+            else:
+                await m.reply_text(msg_text, reply_markup=reply_markup)
             return
 
-        await self._show_logout_prompt(q)
+        await self._show_logout_prompt(q if q else m)

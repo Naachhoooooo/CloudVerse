@@ -172,6 +172,7 @@ def register_handlers(app):
     from telegram.ext import CommandHandler, CallbackQueryHandler
     app.add_handler(CommandHandler("settings", handle_settings_menu))
     app.add_handler(CommandHandler("login", handle_login))
+    app.add_handler(CommandHandler("logout", handle_logout))
     app.add_handler(CallbackQueryHandler(handle_settings_menu, pattern=r"^SETTINGS$"))
     app.add_handler(CallbackQueryHandler(handle_login, pattern=r"^login$"))
     app.add_handler(CallbackQueryHandler(handle_logout, pattern=r"^(logout|logout_account|logout_specific:.*|logout_all_prompt|confirm_logout:.*)$"))

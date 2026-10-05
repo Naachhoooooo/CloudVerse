@@ -114,6 +114,16 @@ async def handle_storage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # Build the message text
         text = "📊 <b>Storage Usage Overview</b>\n\n"
 
+        def format_size(gb_val):
+            if gb_val == 0:
+                return "0.00 MB"
+            if gb_val >= 1024:
+                return f"{gb_val / 1024:.2f} TB"
+            elif gb_val < 1:
+                return f"{gb_val * 1024:.2f} MB"
+            else:
+                return f"{gb_val:.2f} GB"
+
         # Account details — layout: Account → blank line → bar → Used → blank → Free/Trash → blank
         for account in storage_data:
             account_label = account['email'][0].upper() + account['email'][1:] if account['email'] != 'default' else 'Default Account'
@@ -124,9 +134,9 @@ async def handle_storage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             bar = "🟢" * filled + "⚪" * (10 - filled)
             text += f"{bar} {account['used_percent']:.0f}%\n\n"
 
-            text += f"<b>Used:</b> {account['used']:.2f} GB of {account['limit']:.2f} GB\n"
-            text += f"<b>Free:</b> {account['free']:.2f} GB ({account['free_percent']:.0f}%)\n"
-            text += f"<b>Trash:</b> {account['trash']:.2f} GB\n"
+            text += f"<b>Used:</b> {format_size(account['used'])} of {format_size(account['limit'])}\n"
+            text += f"<b>Free:</b> {format_size(account['free'])} ({account['free_percent']:.0f}%)\n"
+            text += f"<b>Trash:</b> {format_size(account['trash'])}\n"
             text += "\n"
 
         buttons = [

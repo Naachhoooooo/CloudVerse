@@ -1,6 +1,6 @@
 import humanize
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ApplicationHandlerStop
 
 from shared.core.ErrorHandler import handle_errors
 from shared.managers.AccessManager import access_required
@@ -32,7 +32,7 @@ async def handle_user_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     
     # ── Universal Cancel Interceptor ───────────────────────────────────────────
     current_state_val = ctx.user_data.get("current_state")
-    if text.lower() == "/cancel":
+    if text.lower() in ["/cancel", "cancel"]:
         if current_state_val or any(ctx.user_data.get(k) for k in ["awaiting_new_domain", "awaiting_delete_typein", "awaiting_api_id", "awaiting_api_hash", "awaiting_telethon_phone", "awaiting_telethon_code", "awaiting_telethon_2fa", "awaiting_approve_message", "awaiting_reject_message", "awaiting_limit_hours", "awaiting_policy_update", "awaiting_broadcast_message", "awaiting_quota_input"]):
             user_state.reset()
             keys_to_clear = ["awaiting_new_domain", "awaiting_delete_typein", "awaiting_api_id", "awaiting_api_hash", "awaiting_telethon_phone", "awaiting_telethon_code", "awaiting_telethon_2fa", "awaiting_approve_message", "awaiting_reject_message", "awaiting_limit_hours", "awaiting_policy_update", "awaiting_broadcast_message", "awaiting_quota_input"]
@@ -40,22 +40,23 @@ async def handle_user_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 ctx.user_data.pop(k, None)
                 
             from shared.components.Start import start
-            await m.reply_text("❌ Action cancelled.")
+            from telegram import ReplyKeyboardRemove
+            await m.reply_text("Action cancelled.", reply_markup=ReplyKeyboardRemove())
             await start(update, ctx)
-            return
+            raise ApplicationHandlerStop()
 
     # ── Policy Update Routing ──────────────────────────────────────────
     if ctx.user_data.get("awaiting_policy_update"):
         from shared.components.Policy import handle_policy_update
         await handle_policy_update(update, ctx)
-        return
+        raise ApplicationHandlerStop()
 
     # ── Auth flows (Drive, Mega) ─────────────────────────────────────────────
     if user_state.is_state(UserStateEnum.EXPECTING_CODE) or \
        user_state.is_state(UserStateEnum.EXPECTING_MEGA_EMAIL) or \
        user_state.is_state(UserStateEnum.EXPECTING_MEGA_PASSWORD):
         await handle_login(update, ctx)
-        return
+        raise ApplicationHandlerStop()
 
     # ── Approval message relay (admin messaging a user) ───────────────────────
     if user_state.is_state(UserStateEnum.EXPECTING_APPROVAL_MESSAGE):
@@ -67,14 +68,14 @@ async def handle_user_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             await m.reply_text("⚠️ Could not relay message — user ID missing or empty text.")
         user_state.reset()
-        return
+        raise ApplicationHandlerStop()
 
 
     # ── Parallel transfers input ───────────────────────────────────────────────
     if user_state.is_state(UserStateEnum.EXPECTING_PARALLEL_TRANSFERS):
         from shared.components.Settings import update_parallel_transfers
         await update_parallel_transfers(update, ctx)
-        return
+        raise ApplicationHandlerStop()
 
     # ── File/folder rename & create (FileManager) ─────────────────────────────
     next_action = ctx.user_data.get("next_action")
@@ -92,7 +93,7 @@ async def handle_user_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 clean_text = sanitize_name(text)
             except ValueError as e:
                 await m.reply_text(f"❌ {e}")
-                return
+                raise ApplicationHandlerStop()
                 
             if next_action.startswith("rename_folder:"):
                 folder_id = extract_id(ctx, next_action, ":")
@@ -108,4 +109,4 @@ async def handle_user_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 buttons = [[InlineKeyboardButton("Back to Folder Options", callback_data=f"folder_options:{shorten_id(ctx, parent_id)}")]]
                 import html
                 await m.reply_text(f"✅ Folder <b>{html.escape(clean_text)}</b> created.", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
-        return
+        raise ApplicationHandlerStop()

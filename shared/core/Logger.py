@@ -227,8 +227,8 @@ def _make_rotating_handler(path: Path, level: int,
     """Create a run-specific file handler and clean up old logs."""
     path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Clean up logs older than 30 days
-    cleanup_old_logs(path.parent, days=30)
+    # Clean up logs older than 3 days
+    cleanup_old_logs(path.parent, days=3)
     
     import datetime
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -236,7 +236,7 @@ def _make_rotating_handler(path: Path, level: int,
     run_path = path.parent / new_name
     
     from logging.handlers import TimedRotatingFileHandler
-    h = TimedRotatingFileHandler(str(run_path), when="midnight", interval=1, backupCount=30, encoding='utf-8')
+    h = TimedRotatingFileHandler(str(run_path), when="midnight", interval=1, backupCount=3, encoding='utf-8')
     h.setLevel(level)
     h.setFormatter(formatter)
     return h

@@ -70,7 +70,7 @@ async def _render_pending_list(q, ctx, data):
     buttons = []
     
     active_bot = get_active_bot(ctx).capitalize()
-    buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data='toggle_bot_filter')])
+    buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data='toggle_bot_filter:manage_requests')])
     if not pending_users:
         text = '📋 *Pending Requests*\n\nNo pending requests.'
 

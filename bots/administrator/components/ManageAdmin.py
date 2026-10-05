@@ -69,7 +69,7 @@ async def _render_admin_list(q, ctx, data):
         text = f'â­ï¸ *Manage Administrators* - {total_admins}\n\n'
         buttons = []
         active_bot = get_active_bot(ctx).capitalize()
-        buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data='toggle_bot_filter')])
+        buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data='toggle_bot_filter:manage_admins')])
         if not admins:
             text += 'No admins found.'
 

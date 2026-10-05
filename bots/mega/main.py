@@ -11,7 +11,7 @@ import warnings
 from telegram.ext import (
     ApplicationBuilder, MessageHandler, filters
 )
-from telegram import BotCommand, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 from shared.core.Logger import get_logger, setup_logging
 from shared.core.ErrorHandler import handle_errors
@@ -84,6 +84,11 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Query is too old",
         "Message can't be deleted",
         "MESSAGE_ID_INVALID",
+        "httpx.ReadError",
+        "httpx.ConnectError",
+        "httpx.WriteError",
+        "httpx.TimeoutException",
+        "NetworkError",
     )
     if any(phrase in error_str for phrase in BENIGN_ERRORS):
         logger.warning(f"[BOT] Suppressed benign Telegram error: {context.error}")
@@ -107,27 +112,16 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"[BOT] Failed to send error reply: {e}")
 
 
-async def set_bot_commands(app):
-    commands = [
-        BotCommand("start", "Start the Mega bot"),
-        BotCommand("login", "Link your Mega.nz account"),
-        BotCommand("profile", "View account profile"),
-        BotCommand("filemanager", "Browse Mega files"),
-        BotCommand("storage", "View Mega storage details"),
-        BotCommand("settings", "Bot settings"),
-        BotCommand("recyclebin", "Open recycle bin"),
-        BotCommand("policy", "Policy"),
-        BotCommand("queue", "View upload queue status"),
-    ]
-    await app.bot.set_my_commands(commands)
     
 @handle_errors
 @access_required
 async def handle_media(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Receives forwarded files/documents and routes them based on state."""
     
+    from telegram.ext import ApplicationHandlerStop
     from shared.managers.TransferManager.TransferTracker import get_transfer_tracker
     await get_transfer_tracker().handle_file_transfer(update, ctx)
+    raise ApplicationHandlerStop()
 
 
 def _initialize_dependencies(app):
@@ -150,6 +144,9 @@ def _initialize_dependencies(app):
     history_repo = HistoryRepository(str(BOT_DB_PATH))
     app.bot_data['history_repo'] = history_repo
     app.bot_data['account_repo'] = AccountRepository(str(BOT_DB_PATH), history_repo=history_repo)
+    from shared.managers.TicketManager import TicketManager
+    from shared.database.DatabaseConnectionManager import get_db_manager
+    app.bot_data['ticket_manager'] = TicketManager(get_db_manager(str(SERVER_DB_PATH)))
     logger.info("[BOT] All repositories injected for mega.db")
 
     from shared.core.ComponentInitializer import init_shared_components
@@ -262,8 +259,6 @@ def _setup_lifecycle(app):
     _SESSION_TS = _dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     async def on_startup(application):
-        logger.info("Setting Mega bot commands...")
-        await set_bot_commands(application)
         import os
         await application.bot_data['account_repo'].sync_super_admins(
             os.getenv("MEGA_SUPER_ADMIN_ID") or os.getenv("GLOBAL_SUPER_ADMIN_ID")
@@ -277,19 +272,6 @@ def _setup_lifecycle(app):
         await application.bot_data['history_repo'].safe_create(
             action_taken="BOT_STARTUP", status="SUCCESS", event_details="Mega bot started successfully."
         )
-        # Archive previous session logs → backup topic
-        from shared.managers.LogManager import archive_previous_session_logs
-        from bots.mega.config import TeamCloudverse_GROUP_CHAT_ID, BACKUP_TOPIC_ID
-        try:
-            await archive_previous_session_logs(
-                bot=application.bot,
-                chat_id=int(TeamCloudverse_GROUP_CHAT_ID),
-                topic_id=int(BACKUP_TOPIC_ID),
-                provider_name="mega",
-                session_timestamp=_SESSION_TS,
-            )
-        except Exception as _e:
-            logger.warning(f"[SYSTEM] Session log archive skipped: {_e}")
 
     app.post_init = on_startup
 

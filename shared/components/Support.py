@@ -22,7 +22,7 @@ async def support_command_handler(update: Update, context: ContextTypes.DEFAULT_
     manager = await _get_ticket_manager(context)
     if not manager: return
 
-    support_group_id = os.getenv("SUPPORT_GROUP_ID")
+    support_group_id = os.getenv("CLOUDVERSE_SUPPORT_GROUP_ID")
     
     q = getattr(update, "callback_query", None)
     if q:
@@ -50,7 +50,8 @@ async def support_command_handler(update: Update, context: ContextTypes.DEFAULT_
     source_system = context.bot.username if context.bot.username else "CloudVerseBot"
     await manager.authorize_user(telegram_id, username, name, source_system)
 
-    active_ticket = await manager.get_active_ticket(telegram_id)
+    provider = context.bot_data.get('provider_name', 'unknown')
+    active_ticket = await manager.get_active_ticket(telegram_id, provider)
     if active_ticket:
         await msg_func(
             f"👋 Welcome back to <b>CloudVerse Support</b>!\n\n"
@@ -71,7 +72,7 @@ async def support_message_handler(update: Update, context: ContextTypes.DEFAULT_
     manager = await _get_ticket_manager(context)
     if not manager: return
 
-    support_group_id = os.getenv("SUPPORT_GROUP_ID")
+    support_group_id = os.getenv("CLOUDVERSE_SUPPORT_GROUP_ID")
     if not update.message or update.effective_chat.type != "private" or not support_group_id:
         return
         
@@ -87,15 +88,30 @@ async def support_message_handler(update: Update, context: ContextTypes.DEFAULT_
     if not db_user:
         return
 
+    provider = context.bot_data.get('provider_name', 'unknown')
+    active_ticket = await manager.get_active_ticket(telegram_id, provider)
     topic_id = db_user.get('topic_id')
-    active_ticket = await manager.get_active_ticket(telegram_id)
 
     try:
+        # Fallback for orphaned tickets or users without a topic
+        if active_ticket and not topic_id:
+            username_str = f"@{update.effective_user.username}" if update.effective_user.username else update.effective_user.full_name
+            topic_name = f"{username_str} - {telegram_id}"
+            try:
+                forum_topic = await context.bot.create_forum_topic(chat_id=support_group_id, name=topic_name)
+                topic_id = forum_topic.message_thread_id
+                await manager.set_user_topic(telegram_id, topic_id)
+                await manager.create_ticket(active_ticket['ticket_code'], telegram_id, topic_id, provider)
+                logger.info(f"Re-created missing topic {topic_id} for user {telegram_id}")
+            except Exception as e:
+                logger.error(f"Failed to re-create forum topic for user {telegram_id}: {e}")
+                
         if not active_ticket:
             ticket_code = await manager.generate_next_ticket_code()
             
             if not topic_id:
-                topic_name = f"{update.effective_user.full_name} ({telegram_id})"
+                username_str = f"@{update.effective_user.username}" if update.effective_user.username else update.effective_user.full_name
+                topic_name = f"{username_str} - {telegram_id}"
                 try:
                     forum_topic = await context.bot.create_forum_topic(
                         chat_id=support_group_id,
@@ -103,17 +119,16 @@ async def support_message_handler(update: Update, context: ContextTypes.DEFAULT_
                     )
                     topic_id = forum_topic.message_thread_id
                     await manager.set_user_topic(telegram_id, topic_id)
-                    logger.info(f"Created dedicated topic {topic_id} for user {telegram_id}")
                 except Exception as e:
                     logger.error(f"Failed to create forum topic for user {telegram_id}: {e}")
                     await update.message.reply_text("⚠️ <b>Support system is currently experiencing technical difficulties.</b>", parse_mode="HTML")
                     return
 
-            await manager.create_ticket(ticket_code, telegram_id)
+            await manager.create_ticket(ticket_code, telegram_id, topic_id, provider)
 
-            safe_name = html.escape(update.effective_user.full_name)
-            safe_username = html.escape(update.effective_user.username) if update.effective_user.username else 'N/A'
-            safe_source = html.escape(db_user.get('source_system', 'Unknown'))
+            safe_name = html.escape(update.effective_user.full_name or 'User')
+            safe_username = html.escape(update.effective_user.username or 'N/A')
+            safe_source = html.escape(f"{provider.capitalize()} Bot")
             
             intro_text = (
                 f"🚨 <b>New Support Ticket</b>\n\n"
@@ -126,6 +141,9 @@ async def support_message_handler(update: Update, context: ContextTypes.DEFAULT_
             )
             
             keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("💬 Open Ticket", callback_data=f"support_action:ticket_handle:{telegram_id}")
+                ],
                 [
                     InlineKeyboardButton("✅ Solved", callback_data=f"support_action:ticket_solve:{telegram_id}"),
                     InlineKeyboardButton("❌ Unsolved", callback_data=f"support_action:ticket_unsolve:{telegram_id}")
@@ -146,12 +164,32 @@ async def support_message_handler(update: Update, context: ContextTypes.DEFAULT_
                 parse_mode="HTML"
             )
 
-        await context.bot.forward_message(
-            chat_id=support_group_id,
-            message_thread_id=topic_id,
-            from_chat_id=update.effective_chat.id,
-            message_id=update.message.message_id
-        )
+        try:
+            await context.bot.forward_message(
+                chat_id=support_group_id,
+                message_thread_id=topic_id,
+                from_chat_id=update.effective_chat.id,
+                message_id=update.message.message_id
+            )
+        except Exception as e:
+            if "Message thread not found" in str(e):
+                logger.warning(f"Topic {topic_id} was deleted for user {telegram_id}. Re-creating.")
+                username_str = f"@{update.effective_user.username}" if update.effective_user.username else update.effective_user.full_name
+                topic_name = f"{username_str} - {telegram_id}"
+                forum_topic = await context.bot.create_forum_topic(chat_id=support_group_id, name=topic_name)
+                topic_id = forum_topic.message_thread_id
+                await manager.set_user_topic(telegram_id, topic_id)
+                if active_ticket:
+                    await manager.create_ticket(active_ticket['ticket_code'], telegram_id, topic_id, provider)
+                # Retry forwarding
+                await context.bot.forward_message(
+                    chat_id=support_group_id,
+                    message_thread_id=topic_id,
+                    from_chat_id=update.effective_chat.id,
+                    message_id=update.message.message_id
+                )
+            else:
+                raise e
 
     except Exception as e:
         logger.error(f"Error handling user message from {telegram_id}: {e}")
@@ -163,7 +201,7 @@ async def support_admin_reply_handler(update: Update, context: ContextTypes.DEFA
     manager = await _get_ticket_manager(context)
     if not manager: return
 
-    support_group_id = os.getenv("SUPPORT_GROUP_ID")
+    support_group_id = os.getenv("CLOUDVERSE_SUPPORT_GROUP_ID")
     if not update.message or str(update.effective_chat.id) != str(support_group_id):
         return
         
@@ -180,9 +218,15 @@ async def support_admin_reply_handler(update: Update, context: ContextTypes.DEFA
             return
             
         telegram_id = db_user['telegram_id']
+        bot_source = db_user.get('bot_source', 'unknown')
         admin_name = update.message.from_user.first_name
         
-        active_ticket = await manager.get_active_ticket(telegram_id)
+        # Prevent multiple bots from forwarding the same message
+        provider = context.bot_data.get('provider_name', 'unknown')
+        if bot_source != provider:
+            return
+        
+        active_ticket = await manager.get_active_ticket(telegram_id, bot_source)
         if active_ticket and not active_ticket.get('admin_replied'):
             ticket_code = active_ticket['ticket_code']
             safe_admin_name = html.escape(admin_name)
@@ -217,7 +261,7 @@ async def support_callback_handler(update: Update, context: ContextTypes.DEFAULT
     manager = await _get_ticket_manager(context)
     if not manager: return
 
-    support_group_id = os.getenv("SUPPORT_GROUP_ID")
+    support_group_id = os.getenv("CLOUDVERSE_SUPPORT_GROUP_ID")
     team_group_id = os.getenv("TEAM_CLOUDVERSE_GROUP_ID")
     flags_topic_id = os.getenv("FLAGS_TOPIC_ID")
 
@@ -234,7 +278,8 @@ async def support_callback_handler(update: Update, context: ContextTypes.DEFAULT
         telegram_id = int(telegram_id_str)
         topic_id = query.message.message_thread_id
 
-        active_ticket = await manager.get_active_ticket(telegram_id)
+        provider = context.bot_data.get('provider_name', 'unknown')
+        active_ticket = await manager.get_active_ticket(telegram_id, provider)
         admin_name = query.from_user.first_name
         admin_details = f"@{query.from_user.username}" if query.from_user.username else admin_name
 
@@ -285,6 +330,27 @@ async def support_callback_handler(update: Update, context: ContextTypes.DEFAULT
                     parse_mode="HTML"
                 )
             await query.answer("User flagged and report sent.", show_alert=True)
+            
+        elif action == "ticket_handle":
+            if not active_ticket:
+                await query.answer("This ticket is no longer active.", show_alert=True)
+                return
+            ticket_code = active_ticket['ticket_code']
+            
+            # Update the ticket's updated_at timestamp to make it the most recent active ticket
+            await manager.db_manager.execute_async_query(
+                "UPDATE support_tickets SET updated_at = CURRENT_TIMESTAMP WHERE ticket_code = ?",
+                (ticket_code,)
+            )
+            
+            handle_message = f"👨‍💻 <b>Team CloudVerse</b> is now handling Ticket <code>{ticket_code}</code>."
+            await context.bot.send_message(
+                chat_id=support_group_id,
+                message_thread_id=topic_id,
+                text=handle_message,
+                parse_mode="HTML"
+            )
+            await query.answer(f"Ticket {ticket_code} is now open")
 
     except Exception as e:
         logger.error(f"Error handling admin ticket action: {e}")

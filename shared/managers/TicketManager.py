@@ -23,14 +23,14 @@ class TicketManager:
     async def get_user_by_topic(self, topic_id: int):
         return await self.support_repo.get_user_by_topic(topic_id)
 
-    async def get_active_ticket(self, telegram_id: int):
-        return await self.support_repo.get_active_ticket(telegram_id)
+    async def get_active_ticket(self, telegram_id: int, bot_source: str):
+        return await self.support_repo.get_active_ticket(telegram_id, bot_source)
 
     async def generate_next_ticket_code(self) -> str:
         return await self.support_repo.generate_next_ticket_code()
 
-    async def create_ticket(self, ticket_code: str, telegram_id: int):
-        await self.support_repo.create_ticket(ticket_code, telegram_id)
+    async def create_ticket(self, ticket_code: str, telegram_id: int, topic_id: int = None, bot_source: str = 'unknown'):
+        await self.support_repo.create_ticket(ticket_code, telegram_id, topic_id, bot_source)
 
     async def set_user_topic(self, telegram_id: int, topic_id: int):
         await self.support_repo.set_user_topic(telegram_id, topic_id)

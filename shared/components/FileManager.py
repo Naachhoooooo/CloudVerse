@@ -72,6 +72,11 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         account_data = ctx.user_data["account_data"].setdefault(current_account, {
             "current_folder": "root", "folder_stack": [], "folder_pages": {}
         })
+
+        # Reset to root if opened via /filemanager command or main menu button
+        if (m and m.text and m.text.startswith("/filemanager")) or (q and q.data == "FILE_MGR"):
+            account_data["current_folder"] = "root"
+            account_data["folder_stack"] = []
         if "folder_pages" not in account_data or account_data["folder_pages"] is None:
             account_data["folder_pages"] = {}
         current_folder = account_data["current_folder"]
@@ -112,7 +117,12 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         files_list = [f for f in files if f["mimeType"] != "application/vnd.google-apps.folder"]
         # Paginate folders and files if needed
         page = ctx.user_data.get("fm_page", 0)
-        all_items = folders + files_list
+        
+        if ctx.user_data.get("in_def_location"):
+            all_items = folders
+        else:
+            all_items = folders + files_list
+            
         paginator = Paginator(all_items, page, 10)
         paged_items = paginator.items
         total_pages = paginator.total_pages
@@ -125,9 +135,9 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         breadcrumb = await get_breadcrumb(service, account_data['folder_stack'], current_folder, provider.get_folder_name, provider_name=provider.__class__.__name__)
         
         if ctx.user_data.get("in_def_location"):
-            text = f"<b>📂 Select Your Upload Location</b>\n\n<code>{breadcrumb}</code>\n\n<i>Note: Only folders are listed here.</i>\n\n"
+            text = f"<b>📂 Select Your Upload Location</b>\n\nLocation: <code>{breadcrumb}</code>\n\n<i>Note: Only folders are listed here.</i>\n\n"
         else:
-            text = f"<b>📂 Browse your folders and files</b>\n\n<code>{breadcrumb}</code>\n\n"
+            text = f"<b>📂 Browse your folders and files</b>\n\nLocation: <code>{breadcrumb}</code>\n\n"
             
         buttons = []
         if not ctx.user_data.get("in_def_location"):
@@ -145,7 +155,7 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
             buttons.append([InlineKeyboardButton("✅ Select Folder", callback_data="set_def_location")])
             
         if account_data["folder_stack"]:
-            buttons.append([InlineKeyboardButton("Back to Parent Folder", callback_data="back_folder")])
+            buttons.append([InlineKeyboardButton("Back", callback_data="back_folder")])
             
         buttons.append([InlineKeyboardButton("Refresh", callback_data="refresh_folder")])
             
@@ -264,10 +274,11 @@ async def handle_file_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
                 try:
                     file_meta = await provider.get_file_metadata(service, file_id)
                     file_name = file_meta.get('name', 'Unknown')
+                    display_name = file_name
                     file_size = humanize.naturalsize(int(file_meta.get('size', 0)), binary=True) if file_meta.get('size') else 'N/A'
                     text = (
                         f"📄 <b>File Details</b>\n\n"
-                        f"<b>Name:</b> {file_name}\n"
+                        f"<b>Name:</b> {display_name}\n"
                         f"<b>Size:</b> {file_size}"
                     )
                 except Exception as meta_err:
@@ -412,14 +423,18 @@ async def handle_file_operation(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("❌ Cancel", callback_data=f"file:{shorten_id(ctx, file_id)}")]
             ]
             if q and hasattr(q, 'edit_message_text'):
-                await q.edit_message_text(f"\u26a0\ufe0f Are you sure you want to delete <b>{file_name}</b>?\n\nIt will move to the Recycle Bin.", reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML')
+                await q.edit_message_text(
+                    f"⚠️ Are you sure you want to delete:\n\n<b>{file_name}</b>\n\nIt will move to the Recycle Bin.",
+                    reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML'
+                )
         elif isinstance(data, str) and data.startswith("confirm_delete_file:"):
             file_id = extract_id(ctx, data, "confirm_delete_file:")
             # Fetch the name before deletion for the confirmation message
             deleted_name = "the file"
             try:
                 meta = await provider.get_file_metadata(service, file_id)
-                deleted_name = f"<b>{meta.get('name', 'the file')}</b>"
+                name = meta.get('name', 'the file')
+                deleted_name = f"<b>{name}</b>"
             except Exception:
                 pass
             account_data = ctx.user_data.get("account_data", {}).get(current_account, {})
@@ -512,7 +527,7 @@ async def handle_folder_operation(update: Update, ctx: ContextTypes.DEFAULT_TYPE
             ]
             if q and hasattr(q, 'edit_message_text'):
                 await q.edit_message_text(
-                    f"⚠️ Are you sure you want to delete <b>{folder_name}</b>?\n\nIt will move to the Recycle Bin.",
+                    f"⚠️ Are you sure you want to delete:\n\n<b>{folder_name}</b>\n\nIt will move to the Recycle Bin.",
                     reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML'
                 )
         elif isinstance(data, str) and data.startswith("confirm_delete_folder:"):
@@ -520,7 +535,8 @@ async def handle_folder_operation(update: Update, ctx: ContextTypes.DEFAULT_TYPE
             deleted_name = "the folder"
             try:
                 meta = await provider.get_file_metadata(service, folder_id)
-                deleted_name = f"<b>{meta.get('name', 'the folder')}</b>"
+                name = meta.get('name', 'the folder')
+                deleted_name = f"<b>{name}</b>"
             except Exception:
                 pass
             account_data = ctx.user_data.get("account_data", {}).get(current_account, {})

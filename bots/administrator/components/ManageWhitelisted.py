@@ -62,7 +62,7 @@ async def _render_whitelist(q, ctx, data):
         text = f'✅ *Whitelisted Users* - {total_whitelist}\n\n'
         buttons = []
         active_bot = get_active_bot(ctx).capitalize()
-        buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data='toggle_bot_filter')])
+        buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data='toggle_bot_filter:manage_whitelist')])
         if not whitelist:
             text += 'No whitelisted users found.'
 

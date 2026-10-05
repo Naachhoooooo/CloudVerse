@@ -37,7 +37,7 @@ async def get_credentials(telegram_id, account_email=None):
         if not primary:
             logger.debug(f"No credentials found for user {telegram_id}")
             return None
-        return primary.get('creds')
+        return primary.get('drive_credential')
     except Exception as e:
         logger.error(f"Failed to get credentials for user {telegram_id}: {str(e)}", exc_info=True)
         return None
@@ -77,8 +77,8 @@ async def get_drive_service(telegram_id, account_email=None):
         if not primary:
             logger.debug(f"No account found for user {telegram_id}")
             return None
-        account_email = primary.get('email')
-        creds_info = primary.get('creds')
+        account_email = primary.get('email_address')
+        creds_info = primary.get('drive_credential')
 
         if not creds_info:
             logger.debug(f"No credentials found for user {telegram_id}, account {account_email}")
@@ -159,7 +159,7 @@ async def list_trashed_files(service, page_token=None, page_size=10):
             q=query,
             pageToken=page_token,
             pageSize=page_size,
-            fields="nextPageToken, files(id,name,mimeType)"
+            fields="nextPageToken, files(id,name,mimeType,size)"
         ).execute()
 
     res = await _run_in_executor(_execute_list)
@@ -257,6 +257,19 @@ async def empty_trash(service):
     
     await _run_in_executor(_execute_empty)
     return True
+
+
+async def list_trashed_files(service, page_token=None, page_size=100):
+    def _execute_list():
+        results = service.files().list(
+            q="trashed=true",
+            spaces='drive',
+            fields="nextPageToken, files(id, name, mimeType, size)",
+            pageToken=page_token,
+            pageSize=page_size
+        ).execute()
+        return results.get('files', []), results.get('nextPageToken', None)
+    return await _run_in_executor(_execute_list)
 
 
 def _get_folder_size_sync(service, folder_id: str) -> int:

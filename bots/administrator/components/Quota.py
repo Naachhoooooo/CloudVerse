@@ -49,7 +49,7 @@ async def _render_quota_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text += "Proceed by selecting a user:\n\n"
     buttons = []
     active_bot = get_active_bot(ctx).capitalize()
-    buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data="toggle_bot_filter_quota")])
+    buttons.append([InlineKeyboardButton(get_filter_button_text(active_bot), callback_data="toggle_bot_filter:quota")])
     for user in page_users:
         label = format_user_list_label(user, include_emoji=True)
         buttons.append([

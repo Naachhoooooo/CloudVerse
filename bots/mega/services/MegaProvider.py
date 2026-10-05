@@ -317,7 +317,7 @@ class MegaProvider(ProviderInterface):
     async def delete_file(self, service: Any, file_id: str) -> bool:
         try:
             def _delete():
-                service.destroy(file_id)
+                service.delete(file_id)
             await asyncio.to_thread(_delete)
             self._invalidate_cache(service)
             return True
@@ -362,7 +362,7 @@ class MegaProvider(ProviderInterface):
             def _restore():
                 node = files.get(file_id)
                 if node:
-                    service.move(node[0] if isinstance(node, tuple) else node, service.root_id)
+                    service.move(file_id, 2)
             await asyncio.to_thread(_restore)
             self._invalidate_cache(service)
             return {"id": file_id, "name": "Restored"}
@@ -400,15 +400,18 @@ class MegaProvider(ProviderInterface):
     # ── Auth ──────────────────────────────────────────────────────────────────
 
     async def _handle_email_input(self, update: Any, user_state: Any) -> None:
+        from telegram import ReplyKeyboardMarkup
         user_state.data["mega_email"] = update.message.text.strip()
         user_state.set_state(UserStateEnum.EXPECTING_MEGA_PASSWORD)
-        await update.message.reply_text("🔒 Now enter your Mega.nz password:")
+        cancel_markup = ReplyKeyboardMarkup([["Cancel"]], resize_keyboard=True, one_time_keyboard=True)
+        await update.message.reply_text("🔒 Now enter your Mega.nz password:", reply_markup=cancel_markup)
 
     async def _handle_password_input(self, update: Any, user_state: Any, telegram_id: int, credential_repo: Any, username: str) -> None:
+        from telegram import ReplyKeyboardRemove
         email = user_state.data.get("mega_email", "")
         password = update.message.text.strip()
         user_state.data["mega_password"] = password
-        await update.message.reply_text("⏳ Authenticating with Mega.nz…")
+        await update.message.reply_text("⏳ Authenticating with Mega.nz…", reply_markup=ReplyKeyboardRemove())
         try:
             def _login():
                 m = Mega()
@@ -428,12 +431,17 @@ class MegaProvider(ProviderInterface):
             logger.info(f"[MEGA][AUTH] User {telegram_id} logged in to Mega (email redacted)")
         except mega.errors.RequestError as e:
             if e.code == -26:
+                from telegram import ReplyKeyboardMarkup
                 user_state.set_state(UserStateEnum.EXPECTING_MEGA_2FA)
-                await update.message.reply_text("🔐 2FA is enabled. Please enter your 6-digit Mega.nz Authenticator code:")
+                cancel_markup = ReplyKeyboardMarkup([["Cancel"]], resize_keyboard=True, one_time_keyboard=True)
+                await update.message.reply_text("🔐 2FA is enabled. Please enter your 6-digit Mega.nz Authenticator code:", reply_markup=cancel_markup)
             else:
                 user_state.reset()
                 logger.error(f"[MEGA][AUTH] Login failed for {telegram_id}: {e}", exc_info=True)
-                await update.message.reply_text("❌ Login failed. Please verify your credentials and try again.")
+                if "eblocked" in str(e).lower() or "blocked" in str(e).lower():
+                    await update.message.reply_text("❌ Login failed. Your Mega.nz account appears to be blocked or restricted (EBLOCKED).")
+                else:
+                    await update.message.reply_text("❌ Login failed. Please verify your credentials and try again.")
         except Exception as e:
             user_state.reset()
             logger.error(f"[MEGA][AUTH] Login failed for {telegram_id}: {e}", exc_info=True)
@@ -488,11 +496,15 @@ class MegaProvider(ProviderInterface):
 
 
     async def _start_login_flow(self, update: Any, user_state: Any) -> None:
+        from telegram import ReplyKeyboardMarkup
         msg = "📧 Enter your Mega.nz email address:"
+        cancel_markup = ReplyKeyboardMarkup([["Cancel"]], resize_keyboard=True, one_time_keyboard=True)
+        
         if update.callback_query:
-            await update.callback_query.edit_message_text(msg)
+            await update.callback_query.message.delete()
+            await update.callback_query.message.reply_text(msg, reply_markup=cancel_markup)
         else:
-            await update.message.reply_text(msg)
+            await update.message.reply_text(msg, reply_markup=cancel_markup)
         user_state.set_state(UserStateEnum.EXPECTING_MEGA_EMAIL)
 
     async def do_login(self, update: Any, ctx: Any) -> None:
@@ -526,17 +538,23 @@ class MegaProvider(ProviderInterface):
             except Exception as e:
                 logger.error(f"[MEGA][AUTH] Error checking existing creds for {telegram_id}: {e}", exc_info=True)
 
-        if update.message and user_state.is_state(UserStateEnum.EXPECTING_MEGA_EMAIL):
-            await self._handle_email_input(update, user_state)
-            return
-
-        if update.message and user_state.is_state(UserStateEnum.EXPECTING_MEGA_PASSWORD):
-            await self._handle_password_input(update, user_state, telegram_id, credential_repo, username)
-            return
-
-        if update.message and user_state.is_state(UserStateEnum.EXPECTING_MEGA_2FA):
-            await self._handle_2fa_input(update, user_state, telegram_id, credential_repo, username)
-            return
+        if update.message:
+            text = update.message.text.strip() if update.message.text else ""
+            if text.startswith("/"):
+                if user_state.is_state(UserStateEnum.EXPECTING_MEGA_EMAIL) or \
+                   user_state.is_state(UserStateEnum.EXPECTING_MEGA_PASSWORD) or \
+                   user_state.is_state(UserStateEnum.EXPECTING_MEGA_2FA):
+                    user_state.reset()
+            else:
+                if user_state.is_state(UserStateEnum.EXPECTING_MEGA_EMAIL):
+                    await self._handle_email_input(update, user_state)
+                    return
+                if user_state.is_state(UserStateEnum.EXPECTING_MEGA_PASSWORD):
+                    await self._handle_password_input(update, user_state, telegram_id, credential_repo, username)
+                    return
+                if user_state.is_state(UserStateEnum.EXPECTING_MEGA_2FA):
+                    await self._handle_2fa_input(update, user_state, telegram_id, credential_repo, username)
+                    return
 
         await self._start_login_flow(update, user_state)
 
@@ -556,15 +574,16 @@ class MegaProvider(ProviderInterface):
         else:
             await q.edit_message_text("Logout cancelled.")
 
-    async def _show_logout_prompt(self, q: Any) -> None:
+    async def _show_logout_prompt(self, msg_or_query: Any) -> None:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        await q.edit_message_text(
-            "⚠️ Are you sure you want to logout of your Mega.nz account?",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Yes", callback_data="confirm_logout:yes"),
-                 InlineKeyboardButton("❌ No", callback_data="confirm_logout:no")]
-            ])
-        )
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Yes", callback_data="confirm_logout:yes"),
+             InlineKeyboardButton("❌ No", callback_data="confirm_logout:no")]
+        ])
+        if hasattr(msg_or_query, 'edit_message_text'):
+            await msg_or_query.edit_message_text("⚠️ Are you sure you want to logout of your Mega.nz account?", reply_markup=reply_markup)
+        else:
+            await msg_or_query.reply_text("⚠️ Are you sure you want to logout of your Mega.nz account?", reply_markup=reply_markup)
 
     async def do_logout(self, update: Any, ctx: Any) -> None:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -572,14 +591,16 @@ class MegaProvider(ProviderInterface):
         if ctx.user_data is None:
             ctx.user_data = {}
 
-        if not (update.callback_query and update.callback_query.from_user):
+        q = update.callback_query
+        m = update.message
+        
+        if not q and not m:
             return
 
-        q = update.callback_query
-        telegram_id = q.from_user.id
+        telegram_id = q.from_user.id if q else m.from_user.id
         credential_repo = ctx.bot_data.get("credential_repo")
 
-        if q.data and q.data.startswith("confirm_logout:"):
+        if q and q.data and q.data.startswith("confirm_logout:"):
             await q.answer()
             action = q.data.split(":")[1]
             await self._process_logout_confirmation(q, action, telegram_id, credential_repo)
@@ -594,10 +615,12 @@ class MegaProvider(ProviderInterface):
                 logger.warning(f"[MEGA][AUTH] Error checking credentials during logout for {telegram_id}: {e}")
 
         if not has_creds:
-            await q.edit_message_text(
-                "ℹ️ No linked Mega account found.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="SETTINGS")]])
-            )
+            msg_text = "ℹ️ No linked Mega account found."
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="SETTINGS")]])
+            if q:
+                await q.edit_message_text(msg_text, reply_markup=reply_markup)
+            else:
+                await m.reply_text(msg_text, reply_markup=reply_markup)
             return
 
-        await self._show_logout_prompt(q)
+        await self._show_logout_prompt(q if q else m)

@@ -49,7 +49,7 @@ class Paginator:
             buttons.append(InlineKeyboardButton("Prev", callback_data=prev_callback))
 
         # Current page indication
-        page_text = f"⟨ {self.current_page + 1} / {self.total_pages} ⟩"
+        page_text = f"{self.current_page + 1} / {self.total_pages}"
         buttons.append(InlineKeyboardButton(page_text, callback_data=page_callback))
 
         if self.current_page < self.total_pages - 1 and next_callback:
@@ -60,21 +60,19 @@ class Paginator:
 def format_user_list_label(user_dict: dict, include_emoji: bool = True) -> str:
     """
     Standardizes how user names are displayed in long lists (e.g., Admin Menus).
-    Format: [Emoji] Name (@username)
+    Format: [Emoji] Name (@username) - ID
     Or gracefully falls back if username or name is missing.
     """
     username = user_dict.get("username")
     name = user_dict.get("name")
     uid = user_dict.get("telegram_id")
     
-    if username and name:
-        display = f"{name} (@{username})"
-    elif username:
-        display = f"@{username}"
+    if username:
+        display = f"@{username} - {uid}"
     elif name:
-        display = name
+        display = f"{name} - {uid}"
     else:
-        display = f"User {uid}"
+        display = f"User - {uid}"
         
     if include_emoji:
         emoji = user_dict.get("bot_role_emoji", "👤")

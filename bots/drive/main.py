@@ -64,7 +64,7 @@ from telegram.ext import (  # noqa: E402
     ApplicationBuilder, MessageHandler, filters,
     ContextTypes
 )
-from telegram import BotCommand, Update  # noqa: E402
+from telegram import Update  # noqa: E402
 
 from shared.core.Logger import get_logger, setup_logging  # noqa: E402
 from shared.core.ErrorHandler import handle_errors  # noqa: E402
@@ -93,6 +93,11 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Query is too old",
         "Message can't be deleted",
         "MESSAGE_ID_INVALID",
+        "httpx.ReadError",
+        "httpx.ConnectError",
+        "httpx.WriteError",
+        "httpx.TimeoutException",
+        "NetworkError",
     )
     if any(phrase in error_str for phrase in BENIGN_ERRORS):
         logger.warning(f"[BOT] Suppressed benign Telegram error: {context.error}")
@@ -116,19 +121,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"[BOT] Failed to send error reply: {e}")
 
 
-async def set_bot_commands(app):
-    commands = [
-        BotCommand("start", "Start the bot"),
-        BotCommand("login", "Login to Google Drive"),
-        BotCommand("profile", "View account profile"),
-        BotCommand("filemanager", "Open file manager"),
-        BotCommand("storage", "View storage details"),
-        BotCommand("recyclebin", "Open recycle bin"),
-        BotCommand("settings", "Open settings"),
-        BotCommand("policy", "Policy"),
-        BotCommand("queue", "View upload queue status"),
-    ]
-    await app.bot.set_my_commands(commands)
 
 
 # ── Drive-specific handlers ──────────────────────────────────────────────
@@ -138,14 +130,18 @@ async def set_bot_commands(app):
 async def handle_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Receives forwarded files/documents and routes them based on state."""
     
+    from telegram.ext import ApplicationHandlerStop
     await get_transfer_tracker().handle_file_transfer(update, ctx)
+    raise ApplicationHandlerStop()
 
 
 @handle_errors
 @access_required
 async def handle_url(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Receives a URL pasted by the user and downloads it to Drive (Drive-only)."""
+    from telegram.ext import ApplicationHandlerStop
     await get_transfer_tracker().handle_url_transfer(update, ctx)
+    raise ApplicationHandlerStop()
 
 
 @handle_errors
@@ -157,10 +153,21 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     - Otherwise → shared handle_user_input (state machine for all bots).
     """
     from shared.core.InputRouter import handle_user_input
+    from shared.core.UserState import UserState, UserStateEnum
+    
+    # Check if we are currently expecting an OAuth code. 
+    # If so, route immediately to handle_user_input instead of parsing as a URL transfer.
+    user_state = None
+    if ctx.user_data and "state" in ctx.user_data and isinstance(ctx.user_data["state"], UserState):
+        user_state = ctx.user_data["state"]
+
     text = update.message.text if update.message else ""
+    
     if text and re.match(r'^https?://', text):
-        await handle_url(update, ctx)
-        return
+        if not (user_state and user_state.is_state(UserStateEnum.EXPECTING_CODE)):
+            await handle_url(update, ctx)
+            return
+
     await handle_user_input(update, ctx)
 
 
@@ -182,6 +189,9 @@ def _initialize_dependencies(app):
     history_repo = HistoryRepository(str(BOT_DB_PATH))
     app.bot_data['history_repo'] = history_repo
     app.bot_data['account_repo'] = AccountRepository(str(BOT_DB_PATH), history_repo=history_repo)
+    from shared.managers.TicketManager import TicketManager
+    from shared.database.DatabaseConnectionManager import get_db_manager
+    app.bot_data['ticket_manager'] = TicketManager(get_db_manager(str(SERVER_DB_PATH)))
     logger.info("[BOT] All repositories injected for drive.db")
     
     from shared.core.ComponentInitializer import init_shared_components
@@ -299,8 +309,6 @@ def _setup_lifecycle(app):
     _SESSION_TS = _dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     async def on_startup(application):
-        logger.info("Setting bot commands...")
-        await set_bot_commands(application)
         import os
         await application.bot_data['account_repo'].sync_super_admins(
             os.getenv("DRIVE_SUPER_ADMIN_ID") or os.getenv("GLOBAL_SUPER_ADMIN_ID")
@@ -314,19 +322,6 @@ def _setup_lifecycle(app):
         await application.bot_data['history_repo'].safe_create(
             action_taken="BOT_STARTUP", status="SUCCESS", event_details="Drive bot started successfully."
         )
-        # Archive previous session logs → backup topic
-        from shared.managers.LogManager import archive_previous_session_logs
-        from bots.drive.config import TeamCloudverse_GROUP_CHAT_ID, BACKUP_TOPIC_ID
-        try:
-            await archive_previous_session_logs(
-                bot=application.bot,
-                chat_id=int(TeamCloudverse_GROUP_CHAT_ID),
-                topic_id=int(BACKUP_TOPIC_ID),
-                provider_name="gdrive",
-                session_timestamp=_SESSION_TS,
-            )
-        except Exception as _e:
-            logger.warning(f"[SYSTEM] Session log archive skipped: {_e}")
 
     app.post_init = on_startup
 

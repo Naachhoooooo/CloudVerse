@@ -22,6 +22,11 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         logger.info(f"Displaying main menu for user {telegram_id}")
         
+        # Reset state on /start to avoid lingering expectations
+        if ctx.user_data is not None and "state" in ctx.user_data:
+            from shared.core.UserState import UserState
+            if isinstance(ctx.user_data["state"], UserState):
+                ctx.user_data["state"].reset()
         try:
             user_data = await ctx.bot_data['account_repo'].get(telegram_id=telegram_id)
             if user_data:
@@ -66,12 +71,17 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     
-    provider = ctx.bot_data.get('provider_name', 'drive').capitalize()
-    platform = 'Google Drive' if provider == 'Drive' else 'Mega.nz' if provider == 'Mega' else 'Cloud Storage'
+    provider = ctx.bot_data.get('provider_name', 'drive').lower()
+    platform_map = {
+        'gdrive': 'Google Drive',
+        'mega': 'Mega.nz',
+        'rclone': 'RClone'
+    }
+    platform = platform_map.get(provider, 'Cloud Storage')
 
     text = (
-        f"👋 Welcome back, <b>{user_name}</b>!, How are you feeling today? 😊\n\n"
-        f"You are currently connected to the <b>CloudVerse {platform}</b> gateway.\n\n"
+        f"👋 Welcome back, <b>{user_name}</b>. How are you feeling today? 😊\n\n"
+        f"You are currently connected to the CloudVerse <b>{platform}</b> gateway.\n\n"
         f"🛡 Please make sure to check out our /policy before getting started!"
     )
 

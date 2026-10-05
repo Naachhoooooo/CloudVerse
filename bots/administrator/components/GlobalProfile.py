@@ -72,8 +72,8 @@ async def _render_global_profile(message, ctx, user_info, query_to_edit=None):
             if isinstance(reg_date, str) and ' ' in reg_date:
                 reg_date = reg_date.split(' ')[0]
             
-            today_str = humanize.naturalsize(bot_data['today_bytes'])
-            lifetime_str = humanize.naturalsize(bot_data['lifetime_bytes'])
+            today_str = humanize.naturalsize(bot_data['today_bytes'], binary=True)
+            lifetime_str = humanize.naturalsize(bot_data['lifetime_bytes'], binary=True)
             
             text += f"├ Role: {role_str.capitalize()}\n"
             text += f"├ Registered: {reg_date}\n"

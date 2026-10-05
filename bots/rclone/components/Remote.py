@@ -25,7 +25,10 @@ async def handle_remote_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             remotes = await list_remotes(config_path)
     except Exception as e:
         logger.error(f"Failed to list rclone remotes: {e}", exc_info=True)
-        msg = f"❌ Failed to list remotes: `{e}`\n\nCheck that rclone is installed and configured."
+        if "No config found" in str(e):
+            msg = "❌ <b>No Configuration Found</b>\n\nYou haven't uploaded an rclone config file yet.\nPlease use the /config command to upload your <code>rclone.conf</code> file."
+        else:
+            msg = "❌ <b>Failed to list remotes</b>\n\nAn unexpected error occurred. Please check your configuration or contact support."
         if update.message:
             await update.message.reply_text(msg, parse_mode="HTML")
         elif update.callback_query:

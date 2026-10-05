@@ -297,7 +297,7 @@ async def _render_transfer_confirmation(update: Update, ctx: ContextTypes.DEFAUL
                 size_info = await get_size(config_path, src)
                 total_files = size_info.get("count", "Unknown")
                 size_bytes = size_info.get("bytes", 0)
-                total_size = humanize.naturalsize(size_bytes) if size_bytes else "0 B"
+                total_size = humanize.naturalsize(size_bytes, binary=True) if size_bytes else "0 B"
             except Exception as e:
                 pass
 

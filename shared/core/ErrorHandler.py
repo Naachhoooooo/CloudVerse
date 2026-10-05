@@ -162,13 +162,13 @@ class ErrorHandler:
         
         # Add helpful suggestions based on category
         suggestions = {
-            ErrorCategory.NETWORK: "\n\n💡 **Tips:**\n• Check your internet connection\n• Try again in a few minutes\n• Use /help for assistance",
-            ErrorCategory.AUTHENTICATION: "\n\n💡 **Tips:**\n• Use /login to authenticate\n• Check your credentials\n• Contact support if issues persist",
-            ErrorCategory.PERMISSION: "\n\n💡 **Tips:**\n• Contact an administrator\n• Check your user role\n• Use /help for available commands",
-            ErrorCategory.RESOURCE: "\n\n💡 **Tips:**\n• Free up storage space\n• Check your quota limits\n• Contact support for quota increase",
-            ErrorCategory.VALIDATION: "\n\n💡 **Tips:**\n• Follow the input format\n• Check file size limits\n• Use /help for guidance",
-            ErrorCategory.SYSTEM: "\n\n💡 **Tips:**\n• Try again in a few minutes\n• Check system status\n• Contact support if persistent",
-            ErrorCategory.UNKNOWN: "\n\n💡 **Tips:**\n• Try again later\n• Use /help for assistance\n• Contact support if needed"
+            ErrorCategory.NETWORK: "\n\n💡 <b>Tips:</b>\n• Check your internet connection\n• Try again in a few minutes\n• Use /help for assistance",
+            ErrorCategory.AUTHENTICATION: "\n\n💡 <b>Tips:</b>\n• Use /login to authenticate\n• Check your credentials\n• Contact support if issues persist",
+            ErrorCategory.PERMISSION: "\n\n💡 <b>Tips:</b>\n• Contact an administrator\n• Check your user role\n• Use /help for available commands",
+            ErrorCategory.RESOURCE: "\n\n💡 <b>Tips:</b>\n• Free up storage space\n• Check your quota limits\n• Contact support for quota increase",
+            ErrorCategory.VALIDATION: "\n\n💡 <b>Tips:</b>\n• Follow the input format\n• Check file size limits\n• Use /help for guidance",
+            ErrorCategory.SYSTEM: "\n\n💡 <b>Tips:</b>\n• Try again in a few minutes\n• Check system status\n• Contact support if persistent",
+            ErrorCategory.UNKNOWN: "\n\n💡 <b>Tips:</b>\n• Try again later\n• Use /help for assistance\n• Contact support if needed"
         }
         
         return message + suggestions.get(category, "")
@@ -315,8 +315,6 @@ class ErrorHandler:
             except Exception as db_error:
                 logger.error(f"Failed to log error to database via callback: {db_error}")
     
-
-    
     def get_error_statistics(self) -> Dict[str, Any]:
         """Get error statistics for monitoring."""
         return {
@@ -325,7 +323,6 @@ class ErrorHandler:
             'user_error_history': {str(uid): len(errors) for uid, errors in self.user_error_history.items()},
             'most_common_error': max(self.error_counts.items(), key=lambda x: x[1]) if self.error_counts else None
         }
-
 
 # Global error handler instance
 _error_handler: Optional[ErrorHandler] = None
@@ -341,10 +338,13 @@ def get_error_handler() -> ErrorHandler:
 def enhanced_error_handler(func: Callable) -> Callable:
     """Decorator for enhanced error handling."""
     from functools import wraps
+    from telegram.ext import ApplicationHandlerStop
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         try:
             return await func(update, context, *args, **kwargs)
+        except ApplicationHandlerStop:
+            raise
         except Exception as error:
             await get_error_handler().handle_error(update, context, error, func.__name__)
     

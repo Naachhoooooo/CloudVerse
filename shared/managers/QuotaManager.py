@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from shared.core.Logger import get_logger
 from shared.database.repositories.UsageRepository import UsageRepository
 from shared.core.AsyncUtils import track_task
@@ -25,7 +25,11 @@ class QuotaManager:
     def initialize(self, db_path: str, default_limit: int = 5):
         self.default_limit = default_limit
         self.usage_repo = UsageRepository(db_path)
-        self.start_daily_reset_schedule()
+        
+        from shared.managers.ScheduleManager import get_schedule_manager
+        sched = get_schedule_manager()
+        sched.register_daily_task("00:00", self.execute_daily_maintenance)
+        sched.start()
 
     async def get_transferred_bytes(self, telegram_id: str, period: str = 'day') -> int:
         """Get transferred bytes for a specific period."""
@@ -76,57 +80,66 @@ class QuotaManager:
             return False
         return await self.usage_repo.increment_usage(telegram_id, file_size)
 
-    def start_daily_reset_schedule(self):
-        self._shutdown_flag = False
-        track_task(self._daily_reset_loop())
-
-    async def _daily_reset_loop(self):
-        logger.info("[QUOTA] Started efficient daily quota reset schedule")
-        while not self._shutdown_flag:
-            try:
-                now = datetime.utcnow()
-                tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-                seconds_until_midnight = (tomorrow - now).total_seconds()
+    async def execute_daily_maintenance(self):
+        """Executed exactly at midnight IST by the ScheduleManager."""
+        try:
+            ist = timezone(timedelta(hours=5, minutes=30))
+            if self.usage_repo:
+                # Fetch top users for daily analytics BEFORE reset
+                top_users = await self.usage_repo.get_top_users_daily(10)
+                advanced_metrics = await self.usage_repo.get_advanced_analytics()
                 
-                # Sleep exactly until midnight UTC
-                await asyncio.sleep(seconds_until_midnight)
+                # Fetch monthly stats if it's the 1st of the month
+                is_first_of_month = datetime.now(ist).day == 1
+                is_jan_first = is_first_of_month and datetime.now(ist).month == 1
                 
-                if self._shutdown_flag:
-                    break
+                monthly_data = None
+                if is_first_of_month:
+                    monthly_data = await self.usage_repo.get_monthly_analytics()
                     
-                if self.usage_repo:
-                    # Fetch top users for daily analytics BEFORE reset
-                    top_users = await self.usage_repo.get_top_users_daily(10)
+                yearly_data = None
+                if is_jan_first:
+                    yearly_data = await self.usage_repo.get_yearly_analytics()
+                
+                from shared.managers.AlertManager import get_alert_manager
+                alert_mgr = get_alert_manager()
+                if alert_mgr:
+                    # Will fire safely if ANALYTICS_TOPIC_ID is configured
+                    await alert_mgr.send_daily_analytics_notification(top_users, advanced_metrics)
                     
-                    from shared.managers.AlertManager import get_alert_manager
-                    alert_mgr = get_alert_manager()
-                    if alert_mgr:
-                        # Will fire safely if ALERTS_TOPIC_ID is configured
-                        await alert_mgr.send_daily_analytics_notification(top_users)
+                    # Send monthly enterprise report if it's the 1st!
+                    if is_first_of_month and monthly_data:
+                        await alert_mgr.send_monthly_analytics_notification(monthly_data)
                         
-                    try:
-                        await self.usage_repo.reset_daily_all()
-                        if alert_mgr:
-                            await alert_mgr.send_warning_notification(
-                                warning_message="Global daily quotas and bandwidth limits have been successfully reset.",
-                                warning_type="QUOTA RESET SUCCESS",
-                                severity="LOW"
-                            )
-                    except Exception as reset_e:
-                        logger.error(f"[QUOTA] Failed to reset global usages: {reset_e}")
-                        if alert_mgr:
-                            await alert_mgr.send_error_notification(
-                                error_message=f"Failed to execute midnight quota wipe: {reset_e}",
-                                error_type="QUOTA RESET FAILURE",
-                                severity="HIGH"
-                            )
-                # Small buffer to avoid double-triggering right at 00:00:00
-                await asyncio.sleep(1)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"[QUOTA] Error in daily reset loop: {e}")
-                await asyncio.sleep(60)
+                    # Send yearly enterprise report if it's Jan 1st!
+                    if is_jan_first and yearly_data:
+                        await alert_mgr.send_yearly_analytics_notification(yearly_data)
+                    
+                try:
+                    is_monday = datetime.now(ist).weekday() == 0
+                    
+                    await self.usage_repo.reset_all_periods(
+                        weekly=is_monday,
+                        monthly=is_first_of_month,
+                        yearly=is_jan_first
+                    )
+                    
+                    if alert_mgr:
+                        await alert_mgr.send_warning_notification(
+                            warning_message=f"Global usage limits reset. (Daily: True, Weekly: {is_monday}, Monthly: {is_first_of_month})",
+                            warning_type="QUOTA RESET SUCCESS",
+                            severity="LOW"
+                        )
+                except Exception as reset_e:
+                    logger.error(f"[QUOTA] Failed to reset global usages: {reset_e}")
+                    if alert_mgr:
+                        await alert_mgr.send_error_notification(
+                            error_message=f"Failed to execute midnight quota wipe: {reset_e}",
+                            error_type="QUOTA RESET FAILURE",
+                            severity="HIGH"
+                        )
+        except Exception as e:
+            logger.error(f"[QUOTA] Error in daily maintenance: {e}")
 
     def stop(self):
         self._shutdown_flag = True

@@ -46,100 +46,6 @@ async def get_scrubbed_log_content(log_name: str, provider_name: str) -> str:
 
 # --- Automated Daily Backups ---
 
-async def archive_previous_session_logs(
-    bot,
-    chat_id: int,
-    topic_id: int,
-    provider_name: str,
-    session_timestamp: str,
-) -> None:
-    """
-    Called at startup. Finds all log files from the PREVIOUS session (i.e., any
-    timestamped .log that is NOT the current session_timestamp), scrubs them,
-    zips them, sends the zip to the backup topic, then deletes the scrubbed copies.
-
-    The original timestamped files are kept until the 5-day cleanup prunes them.
-    """
-    if not chat_id or not topic_id:
-        logger.warning("[SYSTEM] archive_previous_session_logs: missing chat_id or topic_id, skipping.")
-        return
-
-    import zipfile
-    import datetime
-
-    import io
-    
-    logs_root = Path(__file__).parent.parent.parent / "logs"
-    provider_log_dir = logs_root / provider_name
-
-    # Collect all timestamped log files that don't belong to this session
-    prev_logs: list[Path] = []
-    search_dirs = [logs_root, provider_log_dir]
-    for d in search_dirs:
-        if not d.exists():
-            continue
-        for f in d.glob("*_????????_??????.log"):
-            if f.is_file() and session_timestamp not in f.name:
-                prev_logs.append(f)
-
-    if not prev_logs:
-        logger.info(f"[SYSTEM] No previous session logs to archive for {provider_name}.")
-        return
-
-    # Pick the most recent previous session timestamp from filenames
-    import re
-    ts_pattern = re.compile(r"_(\d{8}_\d{6})\.log")
-    all_ts = set()
-    for f in prev_logs:
-        m = ts_pattern.search(f.name)
-        if m:
-            all_ts.add(m.group(1))
-
-    if not all_ts:
-        return
-
-    archive_label = max(all_ts)  # latest previous session
-    now = datetime.datetime.now()
-    zip_filename = f"CloudVerse_{provider_name.capitalize()}_Logs_{archive_label}.zip"
-    
-    zip_buffer = io.BytesIO()
-
-    try:
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for log_file in prev_logs:
-                # Scrub, then add
-                try:
-                    scrubbed_lines = []
-                    with open(log_file, "r", encoding="utf-8", errors="replace") as lf:
-                        for line in lf:
-                            scrubbed_lines.append(scrub_log_line(line))
-                    zf.writestr(f"{log_file.parent.name}/{log_file.name}", "".join(scrubbed_lines))
-                except Exception as e:
-                    logger.warning(f"[SYSTEM] Could not scrub {log_file.name}: {e}")
-
-        if len(zip_buffer.getvalue()) == 0:
-            logger.info(f"[SYSTEM] Archive empty for {provider_name}, skipping send.")
-            return
-
-        zip_buffer.seek(0)
-        caption = (
-            f"<b>📦 CloudVerse {provider_name.capitalize()} — Session Log Archive</b>\n\n"
-            f"📅 <b>Session:</b> {archive_label.replace('_', ' ')}\n"
-            f"📬 <b>Uploaded:</b> {now.strftime('%d %B %Y %H:%M')}\n"
-            f"🗂 <b>Files:</b> {len(prev_logs)} log files (scrubbed)"
-        )
-        await bot.send_document(
-            chat_id=chat_id,
-            message_thread_id=topic_id,
-            document=zip_buffer,
-            filename=zip_filename,
-            caption=caption,
-            parse_mode="HTML",
-        )
-        logger.info(f"[SYSTEM] Session log archive sent to backup topic for {provider_name}.")
-    except Exception as e:
-        logger.error(f"[SYSTEM] Failed to archive/send session logs for {provider_name}: {e}", exc_info=True)
-
 
 def setup_daily_backups(application: Application, chat_id: int, topic_id: int, provider_name: str, db_path: str):
     if not chat_id or not topic_id:
@@ -171,19 +77,30 @@ async def consolidated_daily_backup(context: ContextTypes.DEFAULT_TYPE):
     
     async def create_and_send_zip(zip_filename, caption_title, add_files_func):
         zip_buffer = io.BytesIO()
-        has_files = False
+        file_count = 0
         try:
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                has_files = await add_files_func(zipf)
+                file_count = await add_files_func(zipf)
             
-            if has_files and len(zip_buffer.getvalue()) > 0:
+            if file_count > 0 and len(zip_buffer.getvalue()) > 0:
                 zip_buffer.seek(0)
+                
+                session_id = now.strftime('%Y%m%d %H%M%S')
+                upload_date = now.strftime('%d %B %Y %H:%M')
+                
+                caption = (
+                    f"📦 <b>CloudVerse {caption_title} — Session Log Archive</b>\n\n"
+                    f"📅 <b>Session:</b> {session_id}\n"
+                    f"📬 <b>Uploaded:</b> {upload_date}\n"
+                    f"🗂 <b>Files:</b> {file_count} log files (scrubbed)"
+                )
+                
                 await context.bot.send_document(
                     chat_id=chat_id,
                     message_thread_id=topic_id,
                     document=zip_buffer,
                     filename=zip_filename,
-                    caption=f"<b>{caption_title}</b>\n\n📅 <b>Date:</b> {now.strftime('%d %B %Y')}",
+                    caption=caption,
                     parse_mode="HTML"
                 )
         except Exception as e:
@@ -192,7 +109,7 @@ async def consolidated_daily_backup(context: ContextTypes.DEFAULT_TYPE):
     # 1. Bot specific zips (3 zips)
     for provider in providers:
         async def add_provider_files(zipf):
-            added = False
+            count = 0
             log_dir = Path(__file__).parent.parent.parent / "logs" / provider
             if log_dir.exists():
                 for log_file in os.listdir(log_dir):
@@ -201,23 +118,24 @@ async def consolidated_daily_backup(context: ContextTypes.DEFAULT_TYPE):
                         scrubbed_content = await get_scrubbed_log_content(log_file, provider)
                         if scrubbed_content:
                             zipf.writestr(log_file, scrubbed_content)
-                            added = True
+                            count += 1
             db_name = f"cloudverse_{provider if provider != 'gdrive' else 'drive'}.db"
             db_file = Path(__file__).parent.parent.parent / "data" / "databases" / db_name
             if db_file.exists():
                 zipf.write(db_file, arcname=db_name)
-                added = True
-            return added
+                count += 1
+            return count
             
-        await create_and_send_zip(f"Cloudverse_{provider.capitalize()}_{timestamp_str}.zip", f"CloudVerse {provider.capitalize()} Backup", add_provider_files)
+        prov_title = 'Gdrive' if provider == 'gdrive' else provider.capitalize()
+        await create_and_send_zip(f"{prov_title}_Logs_{timestamp_str}.zip", prov_title, add_provider_files)
         
     # 2. Server and Administrator specific zip
     async def add_server_files(zipf):
-        added = False
+        count = 0
         server_db_path = Path(__file__).parent.parent.parent / "data" / "databases" / "cloudverse_server.db"
         if server_db_path.exists():
             zipf.write(server_db_path, arcname="cloudverse_server.db")
-            added = True
+            count += 1
             
         root_logs_dir = Path(__file__).parent.parent.parent / "logs"
         
@@ -230,7 +148,7 @@ async def consolidated_daily_backup(context: ContextTypes.DEFAULT_TYPE):
                     scrubbed_content = await get_scrubbed_log_content(log_file, "administrator")
                     if scrubbed_content:
                         zipf.writestr(f"administrator/{log_file}", scrubbed_content)
-                        added = True
+                        count += 1
                         
         # Process root system logs
         for root_log in ['database.log', 'errors.log', 'system_actions.log']:
@@ -245,11 +163,31 @@ async def consolidated_daily_backup(context: ContextTypes.DEFAULT_TYPE):
                                 scrubbed_content.append(scrub_log_line(line))
                         if scrubbed_content:
                             zipf.writestr(f, "".join(scrubbed_content))
-                            added = True
-        return added
+                            count += 1
+        return count
         
-    await create_and_send_zip(f"Cloudverse_ServerAdmin_{timestamp_str}.zip", "CloudVerse Server & Admin Backup", add_server_files)
+    await create_and_send_zip(f"ServerAdmin_Logs_{timestamp_str}.zip", "Server & Admin", add_server_files)
+    
+    # 3. Cleanup old logs (older than 3 days)
+    import time
+    three_days_ago = time.time() - (3 * 24 * 60 * 60)
+    root_logs_dir = Path(__file__).parent.parent.parent / "logs"
+    
+    def cleanup_dir(dir_path):
+        if not dir_path.exists():
+            return
+        for item in dir_path.iterdir():
+            if item.is_file() and (item.name.endswith('.log') or '.log.' in item.name):
+                if item.stat().st_mtime < three_days_ago:
+                    try:
+                        item.unlink()
+                        logger.info(f"Deleted old log file: {item.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to delete old log file {item.name}: {e}")
+            elif item.is_dir():
+                cleanup_dir(item)
 
+    cleanup_dir(root_logs_dir)
 def setup_unified_daily_backup(application: Application, chat_id: int, topic_id: int):
     if not chat_id or not topic_id:
         logger.warning("Missing chat_id or topic_id for unified daily backups.")
@@ -260,11 +198,13 @@ def setup_unified_daily_backup(application: Application, chat_id: int, topic_id:
         logger.warning("JobQueue not enabled. Unified backups will not run.")
         return
         
-    # Schedule for everyday midnight
+    # Schedule for everyday midnight IST
     import datetime
+    from datetime import timezone, timedelta
+    ist = timezone(timedelta(hours=5, minutes=30))
     job_queue.run_daily(
         consolidated_daily_backup,
-        time=datetime.time(hour=0, minute=0, second=0),
+        time=datetime.time(hour=0, minute=0, second=0, tzinfo=ist),
         data={'chat_id': chat_id, 'topic_id': topic_id},
         name="unified_daily_backup"
     )

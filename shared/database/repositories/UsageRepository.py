@@ -56,26 +56,39 @@ class UsageRepository(BaseRepository):
         row = await self.fetch_one(query, (telegram_id,))
         if not row:
             return
-        last_updated = datetime.fromisoformat(list(row.values())[0]) if list(row.values())[0] else datetime.min
-        now = datetime.now()
+        from datetime import timezone, timedelta
+        ist = timezone(timedelta(hours=5, minutes=30))
+        
+        last_updated_str = list(row.values())[0]
+        if last_updated_str:
+            if ' ' in last_updated_str:
+                last_updated_str = last_updated_str.replace(' ', 'T')
+            last_updated_utc = datetime.fromisoformat(last_updated_str)
+            if last_updated_utc.tzinfo is None:
+                last_updated_utc = last_updated_utc.replace(tzinfo=timezone.utc)
+            last_updated_ist = last_updated_utc.astimezone(ist)
+        else:
+            last_updated_ist = datetime.min.replace(tzinfo=ist)
+            
+        now_ist = datetime.now(ist)
 
         reset_fields = []
-        if last_updated.year != now.year:
+        if last_updated_ist.year != now_ist.year:
             reset_fields.extend(["transferred_this_year = 0", "transfer_count_this_year = 0",
                                   "transferred_this_month = 0", "transfer_count_this_month = 0",
                                   "transferred_this_week = 0", "transfer_count_this_week = 0",
                                   "transferred_today = 0", "transfer_count_today = 0",
                                   "daily_quota_used = 0", "last_reset = CURRENT_TIMESTAMP"])
-        elif last_updated.month != now.month:
+        elif last_updated_ist.month != now_ist.month:
             reset_fields.extend(["transferred_this_month = 0", "transfer_count_this_month = 0",
                                   "transferred_this_week = 0", "transfer_count_this_week = 0",
                                   "transferred_today = 0", "transfer_count_today = 0",
                                   "daily_quota_used = 0", "last_reset = CURRENT_TIMESTAMP"])
-        elif last_updated.isocalendar()[1] != now.isocalendar()[1]:
+        elif last_updated_ist.isocalendar()[1] != now_ist.isocalendar()[1]:
             reset_fields.extend(["transferred_this_week = 0", "transfer_count_this_week = 0",
                                   "transferred_today = 0", "transfer_count_today = 0",
                                   "daily_quota_used = 0", "last_reset = CURRENT_TIMESTAMP"])
-        elif last_updated.date() != now.date():
+        elif last_updated_ist.date() != now_ist.date():
             reset_fields.extend(["transferred_today = 0", "transfer_count_today = 0",
                                   "daily_quota_used = 0", "last_reset = CURRENT_TIMESTAMP"])
 
@@ -128,13 +141,145 @@ class UsageRepository(BaseRepository):
         """
         return await self.fetch_all(query, (limit,))
 
-    async def reset_daily_all(self) -> bool:
-        """Scheduled daily reset for all users."""
-        query = """
-            UPDATE cloudverse_usage SET
-            daily_quota_used = 0, transferred_today = 0, transfer_count_today = 0,
-            last_reset = CURRENT_TIMESTAMP
-        """
+    async def reset_all_periods(self, weekly: bool = False, monthly: bool = False, yearly: bool = False) -> bool:
+        """Scheduled eager reset for all users based on period."""
+        reset_fields = [
+            "daily_quota_used = 0", 
+            "transferred_today = 0", 
+            "transfer_count_today = 0",
+            "last_reset = CURRENT_TIMESTAMP"
+        ]
+        if weekly:
+            reset_fields.extend(["transferred_this_week = 0", "transfer_count_this_week = 0"])
+        if monthly:
+            reset_fields.extend(["transferred_this_month = 0", "transfer_count_this_month = 0"])
+        if yearly:
+            reset_fields.extend(["transferred_this_year = 0", "transfer_count_this_year = 0"])
+
+        query = f"UPDATE cloudverse_usage SET {', '.join(reset_fields)}"
         await self.execute(query)
-        logger.info(f"[{self.log_tag}] Executed global daily usage reset.")
+        logger.info(f"[{self.log_tag}] Executed global usage reset (weekly={weekly}, monthly={monthly}, yearly={yearly}).")
         return True
+
+    async def get_advanced_analytics(self) -> dict:
+        """Fetch advanced analytics: user growth and transfer metrics."""
+        # User Growth
+        user_metrics = await self.fetch_one("""
+            SELECT 
+                COUNT(*) as total_users,
+                SUM(CASE WHEN requested_at >= datetime('now', '-1 day') THEN 1 ELSE 0 END) as daily_new,
+                SUM(CASE WHEN requested_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as weekly_new,
+                SUM(CASE WHEN requested_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as monthly_new,
+                SUM(CASE WHEN requested_at >= datetime('now', '-365 days') THEN 1 ELSE 0 END) as yearly_new
+            FROM cloudverse_accounts
+        """)
+        
+        # Transfers
+        # For transfers, since QuotaManager resets transferred_today to 0, 
+        # we can just sum up transferred_today BEFORE it gets reset!
+        transfer_metrics = await self.fetch_one("""
+            SELECT 
+                SUM(transferred_today) as total_size_today,
+                SUM(transfer_count_today) as total_count_today,
+                SUM(transferred_this_week) as total_size_week,
+                SUM(transferred_this_month) as total_size_month,
+                SUM(transferred_this_year) as total_size_year,
+                SUM(transferred_lifetime) as total_size_lifetime
+            FROM cloudverse_usage
+        """)
+        
+        # Failures
+        # We need to query cloudverse_transfers for failed status in the last 24h
+        failures = await self.fetch_one("""
+            SELECT COUNT(*) as failure_count
+            FROM cloudverse_transfers
+            WHERE status IN ('failed', 'error') AND created_at >= datetime('now', '-1 day')
+        """)
+        
+        return {
+            'users': dict(user_metrics) if user_metrics else {},
+            'transfers': dict(transfer_metrics) if transfer_metrics else {},
+            'failures': dict(failures) if failures else {}
+        }
+
+    async def get_monthly_analytics(self) -> dict:
+        """Fetch advanced monthly enterprise analytics."""
+        # Top 10 users for the month
+        top_users = await self.fetch_all("""
+            SELECT u.telegram_id, u.username, u.transferred_this_month, u.transfer_count_this_month, a.role
+            FROM cloudverse_usage u
+            LEFT JOIN cloudverse_accounts a ON u.telegram_id = a.telegram_id
+            WHERE u.transferred_this_month > 0
+            ORDER BY u.transferred_this_month DESC 
+            LIMIT 10
+        """)
+        
+        # User retention/participation
+        active_users = await self.fetch_one("""
+            SELECT COUNT(*) as active_count FROM cloudverse_usage WHERE transferred_this_month > 0
+        """)
+        
+        # Total metrics for the month
+        metrics = await self.fetch_one("""
+            SELECT 
+                SUM(transferred_this_month) as total_size,
+                SUM(transfer_count_this_month) as total_count,
+                AVG(transferred_this_month) as avg_size
+            FROM cloudverse_usage
+            WHERE transferred_this_month > 0
+        """)
+        
+        # Failures in the last 30 days
+        failures = await self.fetch_one("""
+            SELECT COUNT(*) as failure_count
+            FROM cloudverse_transfers
+            WHERE status IN ('failed', 'error') AND created_at >= datetime('now', '-30 days')
+        """)
+        
+        return {
+            'top_users': top_users,
+            'active_users': active_users['active_count'] if active_users else 0,
+            'metrics': dict(metrics) if metrics else {},
+            'failures': failures['failure_count'] if failures else 0
+        }
+
+    async def get_yearly_analytics(self) -> dict:
+        """Fetch advanced yearly enterprise analytics."""
+        # Top 10 users for the year
+        top_users = await self.fetch_all("""
+            SELECT u.telegram_id, u.username, u.transferred_this_year, u.transfer_count_this_year, a.role
+            FROM cloudverse_usage u
+            LEFT JOIN cloudverse_accounts a ON u.telegram_id = a.telegram_id
+            WHERE u.transferred_this_year > 0
+            ORDER BY u.transferred_this_year DESC 
+            LIMIT 10
+        """)
+        
+        # User retention/participation
+        active_users = await self.fetch_one("""
+            SELECT COUNT(*) as active_count FROM cloudverse_usage WHERE transferred_this_year > 0
+        """)
+        
+        # Total metrics for the year
+        metrics = await self.fetch_one("""
+            SELECT 
+                SUM(transferred_this_year) as total_size,
+                SUM(transfer_count_this_year) as total_count,
+                AVG(transferred_this_year) as avg_size
+            FROM cloudverse_usage
+            WHERE transferred_this_year > 0
+        """)
+        
+        # Failures in the last 365 days
+        failures = await self.fetch_one("""
+            SELECT COUNT(*) as failure_count
+            FROM cloudverse_transfers
+            WHERE status IN ('failed', 'error') AND created_at >= datetime('now', '-365 days')
+        """)
+        
+        return {
+            'top_users': top_users,
+            'active_users': active_users['active_count'] if active_users else 0,
+            'metrics': dict(metrics) if metrics else {},
+            'failures': failures['failure_count'] if failures else 0
+        }

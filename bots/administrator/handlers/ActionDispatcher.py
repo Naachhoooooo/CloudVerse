@@ -560,10 +560,32 @@ async def _handle_duration_input(q, update, ctx, deps, data):
         await q.edit_message_text("Γ¥î Failed to update restriction. Please try again.",
                                   reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back to List", callback_data="manage_blacklist")]]))
 
-async def _handle_toggle_bot_filter(q, update, ctx):
+async def _handle_toggle_bot_filter(q, update, ctx, deps, data):
     from bots.administrator.components.db_utils import cycle_active_bot
     cycle_active_bot(ctx)
-    await q.answer("Filter updated! Please re-open the menu to see changes.", show_alert=True)
+    
+    screen = data.split(":")[1] if ":" in data else ""
+    ui = _get_ui()
+    
+    if screen == "manage_admins":
+        await ui.manage_admins(update, ctx)
+    elif screen == "manage_super_admins":
+        await ui.manage_super_admins(update, ctx)
+    elif screen == "manage_whitelist":
+        await ui.manage_whitelist(update, ctx)
+    elif screen == "manage_blacklist":
+        await ui.manage_blacklist(update, ctx)
+    elif screen == "manage_requests":
+        from bots.administrator.components.ManageRequest import handle_pending_requests
+        await handle_pending_requests(update, ctx)
+    elif screen == "records":
+        from bots.administrator.components.Records import _render_delete_records
+        await _render_delete_records(q, getattr(update, "message", None), ctx)
+    elif screen == "quota":
+        from bots.administrator.components.Quota import _render_manage_quotas
+        await _render_manage_quotas(q, getattr(update, "message", None), ctx)
+    else:
+        await q.answer("Filter updated! Please re-open the menu.", show_alert=True)
 
 # ΓöÇΓöÇ Routing Dictionaries ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
@@ -572,7 +594,6 @@ EXACT_HANDLERS = {
     "add_admin": _handle_add_admin,
     "super_admin_prev_page": lambda q, u, c, d, _: _paginate_super_admins(q, u, c, -1),
     "super_admin_next_page": lambda q, u, c, d, _: _paginate_super_admins(q, u, c, 1),
-    "toggle_bot_filter": lambda q, u, c, d, _: _handle_toggle_bot_filter(q, u, c),
     "admin_prev_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageAdmin', fromlist=['manage_admins']).manage_admins(u, c),
     "admin_next_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageAdmin', fromlist=['manage_admins']).manage_admins(u, c),
     "whitelist_prev_page": lambda q, u, c, d, _: __import__('bots.administrator.components.ManageWhitelisted', fromlist=['manage_whitelist']).manage_whitelist(u, c),
@@ -613,6 +634,7 @@ PREFIX_HANDLERS = {
     "edit_blacklist:": _handle_edit_blacklist,
     "edit_blacklist_type:": _handle_edit_blacklist_type,
     "duration_": _handle_duration_input,
+    "toggle_bot_filter:": _handle_toggle_bot_filter,
     
     "admin_select:": lambda q, u, c, d, data: __import__('bots.administrator.components.ManageAdmin', fromlist=['manage_admins']).manage_admins(u, c),
     "super_admin_select:": lambda q, u, c, d, data: __import__('bots.administrator.components.ManageSuperadmin', fromlist=['manage_super_admins']).manage_super_admins(u, c),

@@ -4,7 +4,6 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import logging
-from telegram import BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from bots.administrator.config import BOT_TOKEN
 from shared.core.Logger import get_logger, setup_logging
@@ -13,23 +12,6 @@ setup_logging("administrator")
 logger = get_logger(__name__)
 
 async def post_init(application):
-    commands = [
-        BotCommand("superadmin", "Manage Super Admins"),
-        BotCommand("admin", "Manage Admins"),
-        BotCommand("whitelisted", "Manage Whitelisted Users"),
-        BotCommand("blacklisted", "Manage Blacklisted Users"),
-        BotCommand("pending", "Manage Pending Requests"),
-        BotCommand("quota", "Manage Quotas"),
-        BotCommand("broadcast", "Broadcast Messages"),
-        BotCommand("server", "Server Performance"),
-        BotCommand("records", "Delete Records"),
-        BotCommand("domain", "Link Domains"),
-        BotCommand("session", "Telethon Sessions"),
-        BotCommand("maintenance", "Maintenance Mode"),
-        BotCommand("queue", "Live Traffic Queue"),
-    ]
-    await application.bot.set_my_commands(commands)
-    logger.info("Bot commands updated.")
     
     # Set a default account repo for the admin_required decorator checks
     from bots.administrator.components.db_utils import get_account_repo
@@ -40,6 +22,9 @@ async def post_init(application):
     alert_manager.set_application(application)
     alert_manager.set_bot_name("CloudVerse Administrator Bot")
     await alert_manager.send_startup_notification()
+
+    from shared.managers.SessionManager import get_session_manager
+    await get_session_manager().initialize()
 
 def main():
     if not BOT_TOKEN:
@@ -158,7 +143,7 @@ def main():
         from bots.administrator.handlers.ActionDispatcher import dispatch
         return await dispatch(update, ctx)
         
-    app.add_handler(CallbackQueryHandler(handle_access_control_actions, pattern='^(add_admin|remove_admin:.*|add_whitelist|remove_whitelist:.*|set_limit:.*|remove_limit:.*|promote_admin:.*|demote_admin:.*|demote_super_admin_to_admin:.*|demote_super_admin_to_whitelist:.*|admin_prev_page|admin_next_page|super_admin_prev_page|super_admin_next_page|whitelist_prev_page|whitelist_next_page|blacklist_prev_page|blacklist_next_page|requests_prev_page|requests_next_page|back_to_access|back_to_whitelist|admin_select:.*|super_admin_select:.*|whitelist_select:.*|blacklist_select:.*|promote_whitelist_to_admin:.*|ban_whitelist_user:.*|set_whitelist_limit:.*|modify_whitelist_limit:.*|remove_whitelist_limit:.*|promote_blacklist_to_whitelist:.*|set_restriction:.*|remove_blacklist:.*|modify_blacklist_restriction:.*|unrestrict_blacklist:.*|edit_blacklist:.*|edit_blacklist_type:.*|duration_.*|limit_.*|demote_admin_to_whitelist:.*|toggle_bot_filter)$'))
+    app.add_handler(CallbackQueryHandler(handle_access_control_actions, pattern='^(add_admin|remove_admin:.*|add_whitelist|remove_whitelist:.*|set_limit:.*|remove_limit:.*|promote_admin:.*|demote_admin:.*|demote_super_admin_to_admin:.*|demote_super_admin_to_whitelist:.*|admin_prev_page|admin_next_page|super_admin_prev_page|super_admin_next_page|whitelist_prev_page|whitelist_next_page|blacklist_prev_page|blacklist_next_page|requests_prev_page|requests_next_page|back_to_access|back_to_whitelist|admin_select:.*|super_admin_select:.*|whitelist_select:.*|blacklist_select:.*|promote_whitelist_to_admin:.*|ban_whitelist_user:.*|set_whitelist_limit:.*|modify_whitelist_limit:.*|remove_whitelist_limit:.*|promote_blacklist_to_whitelist:.*|set_restriction:.*|remove_blacklist:.*|modify_blacklist_restriction:.*|unrestrict_blacklist:.*|edit_blacklist:.*|edit_blacklist_type:.*|duration_.*|limit_.*|demote_admin_to_whitelist:.*|toggle_bot_filter:.*)$'))
 
     # New granular modules
     from bots.administrator.components.Quota import handle_quota_command, handle_quota_callback, _handle_quota_input
