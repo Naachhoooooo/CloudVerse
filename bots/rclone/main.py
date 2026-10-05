@@ -172,12 +172,10 @@ def _register_handlers(app):
     register_shared_handlers(app, include_bin=False, include_telethon=False)
     
     from telegram.ext import CommandHandler, CallbackQueryHandler
-    from bots.rclone.components.Remote import handle_remote_manager
     from bots.rclone.components.Config import handle_config_cmd, handle_config_callback
     from bots.rclone.components.RemotePicker import handle_rclone_transfer_cmd, handle_picker_callback
     
     app.add_handler(CommandHandler("copy", handle_rclone_transfer_cmd))
-    app.add_handler(CommandHandler("remotes", handle_remote_manager))
     app.add_handler(CommandHandler("config", handle_config_cmd))
     app.add_handler(CallbackQueryHandler(handle_config_callback, pattern=r"^(rclone_config_get|rclone_config_delete_confirm|rclone_config_delete_cancel|rclone_config_delete)$"))
     app.add_handler(CallbackQueryHandler(handle_picker_callback, pattern=r"^(rclone_picker|rclone_pick|rclone_browse|rclone_confirm|rclone_page).*$"))

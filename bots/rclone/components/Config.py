@@ -30,15 +30,15 @@ async def handle_config_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if not remotes:
         msg = (
-            "❇️ <b>Rclone configuration</b>\n\n"
+            "💎 <b>Rclone Configuration</b>\n\n"
             "You have no remotes configured yet.\n\n"
             "Send an <code>rclone.conf</code> file to this bot to configure your cloud drives."
         )
     else:
-        remote_list = "\n".join(f"• {r}" for r in remotes)
+        remote_list = "\n".join(f"• <code>{r}</code>" for r in remotes)
         msg = (
-            "❇️ <b>Rclone configuration</b>\n\n"
-            "Here is list of drives in config file:\n"
+            "💎 <b>Rclone Configuration</b>\n\n"
+            "Here is the list of drives in your config file:\n"
             f"{remote_list}"
         )
     
@@ -77,7 +77,7 @@ async def handle_config_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         credential_repo = ctx.bot_data.get('credential_repo')
         if credential_repo:
             try:
-                await credential_repo.delete(telegram_id=str(telegram_id), provider='rclone')
+                await credential_repo.delete(telegram_id=str(telegram_id))
                 await q.edit_message_text("✅ Rclone configuration deleted successfully.", parse_mode="HTML")
             except Exception as e:
                 logger.error(f"Failed to delete config for {telegram_id}: {e}")

@@ -90,7 +90,7 @@ async def _render_remote_picker(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
             if mode == "Destination":
                 buttons.append([InlineKeyboardButton("⬅️ Back to Source", callback_data="rclone_picker_back_src")])
                 
-            text = f"🔄 **rclone Transfer Setup**\n\nSelect your **{mode} Remote**:"
+            text = f"🌐 <b>Rclone Transfer Setup</b>\n\nSelect your <b>{mode} Remote</b>:"
             markup = InlineKeyboardMarkup(buttons)
             
             if q:
@@ -165,7 +165,7 @@ async def _render_path_browser(update: Update, ctx: ContextTypes.DEFAULT_TYPE, m
             back_cb = "rclone_picker_start" if mode == "Source" else "rclone_confirm_src_path:back"
             buttons.append([InlineKeyboardButton(f"⬅️ Back to {mode} Remotes", callback_data=back_cb)])
             
-            text = f"📂 **Browsing {mode}**\n\n```text\n{display_path}\n```\nNavigate and select your target."
+            text = f"📂 <b>Browsing {mode}</b>\n\n<code>{display_path}</code>\n\nNavigate and select your target."
             await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
             
             picker = ctx.user_data.get('rclone_picker', {})

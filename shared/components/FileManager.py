@@ -58,6 +58,16 @@ async def handle_file_manager(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         telegram_id = None
         if q and q.from_user:
             telegram_id = q.from_user.id
+        elif m and m.from_user:
+            telegram_id = m.from_user.id
+
+        if ctx.bot_data.get('provider_name') == 'rclone':
+            msg = "ℹ️ FileManager is disabled for the Rclone bot. Use /copy to manage transfers."
+            if q:
+                await q.edit_message_text(msg)
+            elif m:
+                await m.reply_text(msg)
+            return
             try:
                 await q.answer()
             except Exception:

@@ -98,6 +98,9 @@ class RcloneCredentialsRepository(BaseProviderCredentialsRepository):
     async def get_parallel_uploads(self, telegram_id: str) -> int:
         return await self.get_parallel_transfers(telegram_id)
 
+    async def get(self, telegram_id: str) -> Optional[Dict]:
+        return await self.get_full_credentials(telegram_id)
+
     async def update_parallel_uploads(self, telegram_id: str, parallel: int) -> bool:
         return await self.update_parallel_transfers(telegram_id, parallel)
 

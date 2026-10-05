@@ -77,6 +77,14 @@ async def handle_storage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
         
         # Get all user accounts
+        if ctx.bot_data.get('provider_name') == 'rclone':
+            msg = "ℹ️ Storage overview is disabled for the Rclone bot."
+            if is_command and update.message:
+                await update.message.reply_text(msg)
+            elif not is_command and update.callback_query:
+                await update.callback_query.edit_message_text(msg)
+            return
+
         accounts = await get_all_user_accounts(telegram_id, ctx)
         if not accounts:
             provider_label = ctx.bot_data.get('provider_name', 'your cloud service').replace('gdrive', 'Google Drive').replace('mega', 'Mega').replace('rclone', 'Rclone')

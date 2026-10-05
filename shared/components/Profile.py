@@ -99,8 +99,19 @@ def emails_profile(user_info, username, telegram_id, role, emails, primary_email
     if default_folder_name.lower() in ("mega root", "google drive root", "root", "/"):
         default_folder_name = "Default"
 
-    status_str = "Linked" if primary_email != "Not Linked" else "Not Linked"
-    account_line = f"Account: <code>{primary_email}</code>\n\n" if status_str == "Linked" else "\n"
+    # Handle provider-specific status strings
+    if primary_email == "Rclone_Configured":
+        status_str = "Configured"
+        account_line = "\n"
+        upload_location_line = ""
+    elif primary_email == "Rclone_Not_Configured":
+        status_str = "Not Configured"
+        account_line = "\n"
+        upload_location_line = ""
+    else:
+        status_str = "Linked" if primary_email != "Not Linked" else "Not Linked"
+        account_line = f"Account: <code>{primary_email}</code>\n\n" if status_str == "Linked" else "\n"
+        upload_location_line = f"Upload Location: <code>{default_folder_name}</code>\n"
 
     return (
         f"⛉ <b>Profile</b>\n\n"
@@ -110,7 +121,7 @@ def emails_profile(user_info, username, telegram_id, role, emails, primary_email
         f"Registration: <code>{creation_date_str}</code>\n\n"
         f"Status: {status_str}\n"
         f"{account_line}"
-        f"Upload Location: <code>{default_folder_name}</code>\n"
+        f"{upload_location_line}"
         f"Parallel Transfer: {parallel_uploads}\n\n"
         f"⚡ <b>Usage Statistics</b>\n\n"
         f"Usage Today: {daily_bandwidth_str}\n\n"
@@ -152,8 +163,13 @@ async def handle_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 
                 # Get credentials info using credential_repo
                 cred = await ctx.bot_data['credential_repo'].get(telegram_id=telegram_id)
-                if cred and 'email_address' in cred:
-                    primary_email = {'email': cred['email_address']}
+                if cred:
+                    if 'email_address' in cred:
+                        primary_email = {'email': cred['email_address']}
+                    elif ctx.bot_data.get('provider_name') == 'rclone':
+                        primary_email = {'email': 'Rclone_Configured'}
+                elif ctx.bot_data.get('provider_name') == 'rclone':
+                    primary_email = {'email': 'Rclone_Not_Configured'}
                 
                 parallel_uploads = await ctx.bot_data['credential_repo'].get_parallel_uploads(telegram_id=telegram_id)
                 default_folder_id = await ctx.bot_data['credential_repo'].get_default_location(telegram_id=telegram_id)
